@@ -22,6 +22,7 @@ result = diwasp(
 ### pandas DataFrame
 
 For DataFrame input:
+
 - **Index**: Must be a `DatetimeIndex`
 - **Columns**: Sensor variables (pressure, velocity, etc.)
 
@@ -52,6 +53,7 @@ result = diwasp(
 ### xarray Dataset
 
 For Dataset input:
+
 - **Time dimension**: Must contain datetime values
 - **Data variables**: Sensor measurements
 
@@ -80,13 +82,13 @@ result = diwasp(
 
 ### Required Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `data` | DataFrame or Dataset | Input sensor data |
-| `sensor_mapping` | dict | Maps variable names to sensor types |
-| `window_length` | float | Analysis window length in seconds |
-| `window_overlap` | float | Overlap between windows in seconds |
-| `depth` | float | Water depth in meters |
+| Parameter        | Type                 | Description                         |
+| ---------------- | -------------------- | ----------------------------------- |
+| `data`           | DataFrame or Dataset | Input sensor data                   |
+| `sensor_mapping` | dict                 | Maps variable names to sensor types |
+| `window_length`  | float                | Analysis window length in seconds   |
+| `window_overlap` | float                | Overlap between windows in seconds  |
+| `depth`          | float                | Water depth in meters               |
 
 ### Sensor Mapping
 
@@ -102,42 +104,42 @@ sensor_mapping = {
 
 Available sensor types:
 
-| Type | Description |
-|------|-------------|
-| `'elev'` | Surface elevation |
-| `'pres'` | Pressure |
-| `'velx'` | X-component velocity |
-| `'vely'` | Y-component velocity |
-| `'velz'` | Z-component velocity |
-| `'vels'` | Surface vertical velocity |
+| Type     | Description                   |
+| -------- | ----------------------------- |
+| `'elev'` | Surface elevation             |
+| `'pres'` | Pressure                      |
+| `'velx'` | X-component velocity          |
+| `'vely'` | Y-component velocity          |
+| `'velz'` | Z-component velocity          |
+| `'vels'` | Surface vertical velocity     |
 | `'accs'` | Surface vertical acceleration |
-| `'slpx'` | X-component surface slope |
-| `'slpy'` | Y-component surface slope |
-| `'accx'` | X-component acceleration |
-| `'accy'` | Y-component acceleration |
-| `'accz'` | Z-component acceleration |
-| `'dspx'` | X displacement |
-| `'dspy'` | Y displacement |
+| `'slpx'` | X-component surface slope     |
+| `'slpy'` | Y-component surface slope     |
+| `'accx'` | X-component acceleration      |
+| `'accy'` | Y-component acceleration      |
+| `'accz'` | Z-component acceleration      |
+| `'dspx'` | X displacement                |
+| `'dspy'` | Y displacement                |
 
 ### Optional Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `method` | str | `'imlm'` | Estimation method: `'dftm'`, `'emlm'`, `'imlm'`, `'emep'`, `'bdm'` |
-| `time_var` | str | `'time'` | Name of time dimension (Dataset only) |
-| `x_var` | str | `'x'` | Name of x-coordinate variable |
-| `y_var` | str | `'y'` | Name of y-coordinate variable |
-| `z_var` | str | `'z'` | Name of z-coordinate variable |
-| `z` | float or dict | None | Sensor z-positions (height above seabed) |
-| `x` | float or dict | None | Sensor x-positions |
-| `y` | float or dict | None | Sensor y-positions |
-| `fs` | float | None | Sampling frequency (inferred if None) |
-| `freqs` | ndarray | None | Output frequency grid |
-| `dirs` | ndarray | None | Output direction grid |
-| `dres` | int | 180 | Directional resolution |
-| `nfft` | int | None | FFT length |
-| `smooth` | bool | True | Apply spectral smoothing |
-| `verbose` | int | 1 | Verbosity level (0, 1, 2) |
+| Parameter  | Type          | Default  | Description                                                        |
+| ---------- | ------------- | -------- | ------------------------------------------------------------------ |
+| `method`   | str           | `'imlm'` | Estimation method: `'dftm'`, `'emlm'`, `'imlm'`, `'emep'`, `'bdm'` |
+| `time_var` | str           | `'time'` | Name of time dimension (Dataset only)                              |
+| `x_var`    | str           | `'x'`    | Name of x-coordinate variable                                      |
+| `y_var`    | str           | `'y'`    | Name of y-coordinate variable                                      |
+| `z_var`    | str           | `'z'`    | Name of z-coordinate variable                                      |
+| `z`        | float or dict | None     | Sensor z-positions (height above seabed)                           |
+| `x`        | float or dict | None     | Sensor x-positions                                                 |
+| `y`        | float or dict | None     | Sensor y-positions                                                 |
+| `fs`       | float         | None     | Sampling frequency (inferred if None)                              |
+| `freqs`    | ndarray       | None     | Output frequency grid                                              |
+| `dirs`     | ndarray       | None     | Output direction grid                                              |
+| `dres`     | int           | 180      | Directional resolution                                             |
+| `nfft`     | int           | None     | FFT length                                                         |
+| `smooth`   | bool          | True     | Apply spectral smoothing                                           |
+| `verbose`  | int           | 1        | Verbosity level (0, 1, 2)                                          |
 
 ## Sensor Positions
 
@@ -200,15 +202,15 @@ The function returns a wavespectra-compatible xarray Dataset:
 
 ### Variables
 
-| Variable | Dimensions | Units | Description |
-|----------|------------|-------|-------------|
-| `efth` | (time, freq, dir) | m²/Hz/degree | Spectral energy density |
-| `hsig` | (time) | m | Significant wave height |
-| `tp` | (time) | s | Peak period |
-| `fp` | (time) | Hz | Peak frequency |
-| `dp` | (time) | degree | Peak direction |
-| `dm` | (time) | degree | Mean direction |
-| `spread` | (time) | degree | Directional spread |
+| Variable | Dimensions        | Units        | Description             |
+| -------- | ----------------- | ------------ | ----------------------- |
+| `efth`   | (time, freq, dir) | m²/Hz/degree | Spectral energy density |
+| `hsig`   | (time)            | m            | Significant wave height |
+| `tp`     | (time)            | s            | Peak period             |
+| `fp`     | (time)            | Hz           | Peak frequency          |
+| `dp`     | (time)            | degree       | Peak direction          |
+| `dm`     | (time)            | degree       | Mean direction          |
+| `spread` | (time)            | degree       | Directional spread      |
 
 ### Example Output Usage
 
@@ -243,6 +245,7 @@ Frequency resolution ≈ 1 / window_length
 ```
 
 Typical values:
+
 - **1800 s (30 min)**: Standard for ocean waves
 - **600-1200 s**: Higher time resolution
 - **3600 s (1 hour)**: Better frequency resolution
@@ -253,7 +256,7 @@ The `window_overlap` parameter controls how much consecutive windows overlap:
 
 - **0**: No overlap, independent windows
 - **window_length/2**: 50% overlap (common choice)
-- **window_length * 0.75**: 75% overlap for smoother time series
+- **window_length \* 0.75**: 75% overlap for smoother time series
 
 ```python
 # 30-minute windows with 50% overlap
@@ -276,7 +279,29 @@ n_windows = 1 + (data_length - window_length) / (window_length - window_overlap)
 
 ## Sampling Frequency
 
-The sampling frequency is automatically inferred from the time index. To override:
+The sampling frequency is automatically inferred from the time index. The function will automatically resample data if:
+
+1. The time index has non-uniform spacing (irregular sampling)
+2. An explicit `fs` parameter is provided that differs from the inferred frequency
+
+### Automatic Resampling
+
+If resampling is needed, the data is interpolated linearly to a uniform grid:
+
+```python
+# Data with irregular sampling will be automatically resampled
+result = diwasp(
+    df_irregular,  # Non-uniform time spacing
+    sensor_mapping=mapping,
+    window_length=1800,
+    window_overlap=900,
+    depth=20.0,
+)
+```
+
+### Override Sampling Frequency
+
+To force resampling to a specific frequency:
 
 ```python
 result = diwasp(
@@ -285,7 +310,7 @@ result = diwasp(
     window_length=1800,
     window_overlap=900,
     depth=20.0,
-    fs=2.0,  # Force 2 Hz sampling frequency
+    fs=2.0,  # Force 2 Hz sampling frequency (triggers resampling if different)
 )
 ```
 
@@ -294,6 +319,7 @@ result = diwasp(
 See [Estimation Methods](estimation_methods.md) for detailed information on each method.
 
 Quick guide:
+
 - `'dftm'`: Fastest, lowest accuracy
 - `'emlm'`: Fast, good for narrow spectra
 - `'imlm'`: Good balance (default)
@@ -392,6 +418,43 @@ tp = result.spec.tp()  # Peak period
 # Plot using wavespectra
 result.spec.plot()
 ```
+
+## Input Validation
+
+The function validates inputs and will raise errors for:
+
+### Empty Sensor Mapping
+
+```python
+# This will raise ValueError
+result = diwasp(df, sensor_mapping={}, ...)
+```
+
+**Error**: `ValueError: sensor_mapping cannot be empty`
+
+### Invalid Depth
+
+```python
+# This will raise ValueError
+result = diwasp(df, sensor_mapping=mapping, depth=-10.0, ...)
+```
+
+**Error**: `ValueError: depth must be positive`
+
+### Invalid Window Overlap
+
+```python
+# This will raise ValueError
+result = diwasp(
+    df,
+    sensor_mapping=mapping,
+    window_length=300,
+    window_overlap=300,  # Must be less than window_length
+    depth=20.0,
+)
+```
+
+**Error**: `ValueError: window_overlap must be less than window_length`
 
 ## Troubleshooting
 

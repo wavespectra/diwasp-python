@@ -144,9 +144,7 @@ class TestDiwaspDataFrame:
 
     def test_invalid_index_raises(self):
         """Test that non-datetime index raises error."""
-        df = pd.DataFrame(
-            {"pressure": [1, 2, 3], "u_vel": [1, 2, 3], "v_vel": [1, 2, 3]}
-        )
+        df = pd.DataFrame({"pressure": [1, 2, 3], "u_vel": [1, 2, 3], "v_vel": [1, 2, 3]})
 
         with pytest.raises(ValueError, match="DatetimeIndex"):
             diwasp(
@@ -214,7 +212,10 @@ class TestDiwaspDataset:
             {
                 "pres": (["time"], np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples)),
                 "velx": (["time"], np.cos(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples)),
-                "vely": (["time"], 0.5 * np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples)),
+                "vely": (
+                    ["time"],
+                    0.5 * np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                ),
             },
             coords={"time": time.values},
         )
@@ -872,6 +873,114 @@ class TestDiwaspSpectralOptions:
         assert len(result.dir) == 36
 
 
+class TestDiwaspResampling:
+    """Tests for automatic resampling functionality."""
+
+    def test_non_uniform_sampling_resampled(self):
+        """Test that non-uniform sampling is automatically resampled."""
+        np.random.seed(42)
+        n_samples = 1200
+
+        # Create non-uniform time index (irregular gaps)
+        base_time = pd.date_range("2024-01-01", periods=n_samples, freq="500ms")
+        time_jitter = pd.to_timedelta(np.random.randint(-50, 50, n_samples), unit="ms")
+        time = base_time + time_jitter
+
+        t = np.arange(n_samples) / 2.0
+        f = 0.1
+
+        df = pd.DataFrame(
+            {
+                "p": np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                "u": np.cos(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                "v": 0.5 * np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+            },
+            index=time,
+        )
+
+        result = diwasp(
+            df,
+            sensor_mapping={"p": "pres", "u": "velx", "v": "vely"},
+            window_length=300,
+            window_overlap=0,
+            depth=20.0,
+            verbose=0,
+        )
+
+        assert isinstance(result, xr.Dataset)
+        assert "efth" in result.data_vars
+
+    def test_explicit_fs_triggers_resampling(self):
+        """Test that explicit fs different from data triggers resampling."""
+        np.random.seed(42)
+        n_samples = 1200
+
+        # Create data at 2 Hz
+        time = pd.date_range("2024-01-01", periods=n_samples, freq="500ms")
+        t = np.arange(n_samples) / 2.0
+        f = 0.1
+
+        df = pd.DataFrame(
+            {
+                "p": np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                "u": np.cos(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                "v": 0.5 * np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+            },
+            index=time,
+        )
+
+        # Request resampling to 1 Hz
+        result = diwasp(
+            df,
+            sensor_mapping={"p": "pres", "u": "velx", "v": "vely"},
+            window_length=300,
+            window_overlap=0,
+            depth=20.0,
+            fs=1.0,  # Resample to 1 Hz
+            verbose=0,
+        )
+
+        assert isinstance(result, xr.Dataset)
+        assert "efth" in result.data_vars
+
+    def test_dataset_resampling(self):
+        """Test resampling with xarray Dataset input."""
+        np.random.seed(42)
+        n_samples = 1200
+
+        # Create non-uniform time index
+        base_time = pd.date_range("2024-01-01", periods=n_samples, freq="500ms")
+        time_jitter = pd.to_timedelta(np.random.randint(-30, 30, n_samples), unit="ms")
+        time = base_time + time_jitter
+
+        t = np.arange(n_samples) / 2.0
+        f = 0.1
+
+        ds = xr.Dataset(
+            {
+                "pres": (["time"], np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples)),
+                "velx": (["time"], np.cos(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples)),
+                "vely": (
+                    ["time"],
+                    0.5 * np.sin(2 * np.pi * f * t) + 0.1 * np.random.randn(n_samples),
+                ),
+            },
+            coords={"time": time.values},
+        )
+
+        result = diwasp(
+            ds,
+            sensor_mapping={"pres": "pres", "velx": "velx", "vely": "vely"},
+            window_length=300,
+            window_overlap=0,
+            depth=20.0,
+            verbose=0,
+        )
+
+        assert isinstance(result, xr.Dataset)
+        assert "efth" in result.data_vars
+
+
 class TestDiwaspIntegration:
     """Integration tests with realistic wave signals."""
 
@@ -890,7 +999,8 @@ class TestDiwaspIntegration:
             {
                 "p": amplitude * np.sin(2 * np.pi * f_wave * t) + 0.05 * np.random.randn(n_samples),
                 "u": amplitude * np.cos(2 * np.pi * f_wave * t) + 0.05 * np.random.randn(n_samples),
-                "v": 0.5 * amplitude * np.sin(2 * np.pi * f_wave * t) + 0.05 * np.random.randn(n_samples),
+                "v": 0.5 * amplitude * np.sin(2 * np.pi * f_wave * t)
+                + 0.05 * np.random.randn(n_samples),
             },
             index=time,
         )

@@ -44,9 +44,9 @@ METHOD_MAP = {
 def diwasp(
     data: xr.Dataset | pd.DataFrame,
     sensor_mapping: dict[str, str],
-    window_length: float,
-    window_overlap: float,
     depth: float,
+    window_length: float = 1200,
+    window_overlap: float = 0,
     method: str = "imlm",
     time_var: str = "time",
     x_var: str = "x",
@@ -82,9 +82,9 @@ def diwasp(
         'elev', 'pres', 'velx', 'vely', 'velz', 'vels', 'accs',
         'slpx', 'slpy', 'accx', 'accy', 'accz', 'dspx', 'dspy'.
         Example: {'pressure': 'pres', 'u': 'velx', 'v': 'vely'}
-    window_length : float
+    window_length : float, default 1200
         Analysis window length in seconds.
-    window_overlap : float
+    window_overlap : float, default 0
         Overlap between consecutive windows in seconds.
     depth : float
         Water depth in meters.
@@ -180,12 +180,23 @@ def diwasp(
     ...     depth=20.0,
     ... )
     """
+    # Validate inputs
+    if not sensor_mapping:
+        raise ValueError("sensor_mapping cannot be empty")
+
+    if depth <= 0:
+        raise ValueError(f"depth must be positive, got {depth}")
+
+    if window_overlap >= window_length:
+        raise ValueError(
+            f"window_overlap ({window_overlap}s) must be less than "
+            f"window_length ({window_length}s)"
+        )
+
     # Validate method
     method_lower = method.lower()
     if method_lower not in METHOD_MAP:
-        raise ValueError(
-            f"Unknown method '{method}'. Must be one of: {list(METHOD_MAP.keys())}"
-        )
+        raise ValueError(f"Unknown method '{method}'. Must be one of: {list(METHOD_MAP.keys())}")
 
     # Convert input to standardized format
     if isinstance(data, pd.DataFrame):
@@ -197,9 +208,7 @@ def diwasp(
             data, sensor_mapping, time_var, x_var, y_var, z_var, z, x, y, depth, fs
         )
     else:
-        raise TypeError(
-            f"data must be pandas DataFrame or xarray Dataset, got {type(data)}"
-        )
+        raise TypeError(f"data must be pandas DataFrame or xarray Dataset, got {type(data)}")
 
     # Use provided or inferred sampling frequency
     sampling_freq = fs if fs is not None else inferred_fs
@@ -317,9 +326,7 @@ def _process_dataframe(
     """
     # Validate index is DatetimeIndex
     if not isinstance(df.index, pd.DatetimeIndex):
-        raise ValueError(
-            f"DataFrame index must be DatetimeIndex, got {type(df.index)}"
-        )
+        raise ValueError(f"DataFrame index must be DatetimeIndex, got {type(df.index)}")
 
     # Validate all sensor columns exist
     missing = [name for name in sensor_mapping if name not in df.columns]
@@ -328,11 +335,29 @@ def _process_dataframe(
 
     # Extract data in sensor order
     sensor_names = list(sensor_mapping.keys())
-    data = df[sensor_names].values
 
-    # Infer sampling frequency
+    # Infer sampling frequency from time index
     time_diff = df.index.to_series().diff().median()
     inferred_fs = 1.0 / time_diff.total_seconds()
+
+    # Determine target sampling frequency
+    target_fs = fs if fs is not None else inferred_fs
+
+    # Check if resampling is needed
+    time_diff_std = df.index.to_series().diff().std().total_seconds()
+    needs_resampling = time_diff_std > 1e-6 or (fs is not None and abs(inferred_fs - fs) > 0.01)
+
+    if needs_resampling:
+        # Resample to uniform frequency
+        period_ms = int(1000.0 / target_fs)
+        new_index = pd.date_range(start=df.index[0], end=df.index[-1], freq=f"{period_ms}ms")
+        df_resampled = df[sensor_names].reindex(new_index).interpolate(method="linear")
+        data = df_resampled.values
+        time_index = new_index
+        inferred_fs = target_fs
+    else:
+        data = df[sensor_names].values
+        time_index = df.index
 
     # Build layout array [3 x n_sensors]
     n_sensors = len(sensor_names)
@@ -363,7 +388,7 @@ def _process_dataframe(
         else:
             layout[2, i] = z
 
-    return data, df.index, inferred_fs, layout
+    return data, time_index, inferred_fs, layout
 
 
 def _process_dataset(
@@ -404,8 +429,6 @@ def _process_dataset(
 
     # Extract data in sensor order
     sensor_names = list(sensor_mapping.keys())
-    data_arrays = [ds[name].values for name in sensor_names]
-    data = np.column_stack(data_arrays)
 
     # Convert time to DatetimeIndex
     time_index = pd.DatetimeIndex(time_coord.values)
@@ -413,6 +436,27 @@ def _process_dataset(
     # Infer sampling frequency
     time_diff = pd.Series(time_index).diff().median()
     inferred_fs = 1.0 / time_diff.total_seconds()
+
+    # Determine target sampling frequency
+    target_fs = fs if fs is not None else inferred_fs
+
+    # Check if resampling is needed
+    time_diff_std = pd.Series(time_index).diff().std().total_seconds()
+    needs_resampling = time_diff_std > 1e-6 or (fs is not None and abs(inferred_fs - fs) > 0.01)
+
+    if needs_resampling:
+        # Resample to uniform frequency
+        period_ms = int(1000.0 / target_fs)
+        new_index = pd.date_range(start=time_index[0], end=time_index[-1], freq=f"{period_ms}ms")
+        # Convert to DataFrame for resampling
+        df_temp = pd.DataFrame({name: ds[name].values for name in sensor_names}, index=time_index)
+        df_resampled = df_temp.reindex(new_index).interpolate(method="linear")
+        data = df_resampled.values
+        time_index = new_index
+        inferred_fs = target_fs
+    else:
+        data_arrays = [ds[name].values for name in sensor_names]
+        data = np.column_stack(data_arrays)
 
     # Build layout array [3 x n_sensors]
     n_sensors = len(sensor_names)
