@@ -1,0 +1,67 @@
+name: Documentation
+
+on:
+    push:
+        branches:
+            - main
+            - master
+    pull_request:
+        branches:
+            - main
+            - master
+    workflow_dispatch: # Allow manual trigger
+
+jobs:
+    build-docs:
+        name: Build documentation
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.10"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install -e ".[docs]"
+
+            - name: Build documentation
+              run: |
+                  cd docs
+                  make html
+
+            - name: Upload documentation artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: documentation
+                  path: docs/_build/html/
+
+            - name: Check for broken links
+              run: |
+                  cd docs
+                  make linkcheck
+              continue-on-error: true
+
+    # This job is only for information - Read the Docs builds automatically
+    readthedocs-info:
+        name: Read the Docs Info
+        runs-on: ubuntu-latest
+        steps:
+            - name: Information
+              run: |
+                  echo "📚 Read the Docs will automatically build documentation from the .readthedocs.yaml config"
+                  echo "🔗 Documentation will be available at: https://diwasp-python.readthedocs.io"
+                  echo ""
+                  echo "To set up Read the Docs:"
+                  echo "1. Go to https://readthedocs.org/dashboard/import/"
+                  echo "2. Import the repository"
+                  echo "3. The .readthedocs.yaml file will configure the build automatically"
+                  echo ""
+                  echo "For webhook integration:"
+                  echo "1. Go to your GitHub repository Settings > Webhooks"
+                  echo "2. Read the Docs should have automatically added a webhook"
+                  echo "3. If not, add: https://readthedocs.org/api/v2/webhook/<project-name>/<project-id>/"
