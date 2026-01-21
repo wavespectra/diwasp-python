@@ -241,58 +241,6 @@ def dirspec(
     return spectrum, info
 
 
-def dirspec_xarray(
-    ds: xr.Dataset,
-    depth: float,
-    fs: float,
-    estimation_params: EstimationParameters | None = None,
-    freqs: NDArray[np.floating] | None = None,
-    dirs: NDArray[np.floating] | None = None,
-    verbose: int = 1,
-) -> xr.Dataset:
-    """Estimate directional spectrum from xarray Dataset.
-
-    Convenience wrapper around `dirspec` that accepts and returns xarray objects.
-
-    Args:
-        ds: Dataset with sensor data variables. Each variable should have
-            'sensor_type', 'x', 'y', 'z' attributes.
-        depth: Mean water depth in meters.
-        fs: Sampling frequency in Hz.
-        estimation_params: Analysis parameters.
-        freqs: Output frequency grid in Hz.
-        dirs: Output direction grid in degrees.
-        verbose: Verbosity level.
-
-    Returns:
-        xarray Dataset compatible with wavespectra package.
-    """
-    # Convert to InstrumentData
-    instrument_data = InstrumentData.from_xarray(ds, depth, fs)
-
-    # Run analysis
-    spectrum, info = dirspec(
-        instrument_data,
-        estimation_params=estimation_params,
-        freqs=freqs,
-        dirs=dirs,
-        verbose=verbose,
-    )
-
-    # Convert to xarray
-    output = spectrum.to_xarray()
-
-    # Add statistics as attributes
-    output.attrs["hsig"] = info.hsig
-    output.attrs["tp"] = info.tp
-    output.attrs["fp"] = info.fp
-    output.attrs["dp"] = info.dp
-    output.attrs["dm"] = info.dm
-    output.attrs["spread"] = info.spread
-
-    return output
-
-
 def _validate_inputs(
     instrument_data: InstrumentData,
     estimation_params: EstimationParameters,
@@ -350,9 +298,7 @@ def _smooth_spectrum(
 
     if kernel is None:
         # Default smoothing kernel (from DIWASP)
-        kernel = np.array(
-            [[0.25, 0.5, 0.25], [0.5, 1.0, 0.5], [0.25, 0.5, 0.25]]
-        )
+        kernel = np.array([[0.25, 0.5, 0.25], [0.5, 1.0, 0.5], [0.25, 0.5, 0.25]])
         kernel = kernel / np.sum(kernel)
 
     # Apply convolution with wrap mode for circular direction dimension

@@ -8,7 +8,6 @@ Main Functions
 --------------
 diwasp : High-level wrapper for analysis of DataFrame/Dataset over multiple windows
 dirspec : Estimate directional spectrum from sensor data (single window)
-dirspec_xarray : Estimate spectrum from xarray Dataset (returns wavespectra-compatible output)
 
 Data Structures
 ---------------
@@ -87,7 +86,7 @@ __version__ = "0.1.0"
 from .wrapper import diwasp
 
 # Core driver functions
-from .core import dirspec, dirspec_xarray
+from .core import dirspec
 
 # Data structures
 from .types import (
@@ -117,7 +116,6 @@ __all__ = [
     "diwasp",
     # Core functions
     "dirspec",
-    "dirspec_xarray",
     # Data structures
     "InstrumentData",
     "SpectralMatrix",

@@ -32,13 +32,13 @@ All standard wave recorder data types are supported:
 
 Five different estimation methods can be used, each with different levels of performance in terms of accuracy, speed, and suitability for different data types:
 
-| Method | Name | Reference |
-|--------|------|-----------|
-| DFTM | Direct Fourier Transform Method | Barber (1961) |
-| EMLM | Extended Maximum Likelihood Method | Isobe et al. (1984) |
-| IMLM | Iterated Maximum Likelihood Method | Pawka (1983) |
-| EMEP | Extended Maximum Entropy Principle | Hashimoto et al. (1993) |
-| BDM | Bayesian Direct Method | Hashimoto and Kobune (1987) |
+| Method | Name                               | Reference                   |
+| ------ | ---------------------------------- | --------------------------- |
+| DFTM   | Direct Fourier Transform Method    | Barber (1961)               |
+| EMLM   | Extended Maximum Likelihood Method | Isobe et al. (1984)         |
+| IMLM   | Iterated Maximum Likelihood Method | Pawka (1983)                |
+| EMEP   | Extended Maximum Entropy Principle | Hashimoto et al. (1993)     |
+| BDM    | Bayesian Direct Method             | Hashimoto and Kobune (1987) |
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ print(f"Peak direction: {info.dp:.1f} deg")
 
 ## License
 
-DIWASP is free software distributed under the GNU General Public License (GPL). See LICENSE for details.
+DIWASP is free software distributed under the MIT License. See LICENSE for details.
 
 ## Citation
 

@@ -7,7 +7,7 @@ name = "diwasp"
 version = "0.1.0"
 description = "DIrectional WAve SPectrum analysis - Python port of the DIWASP Matlab toolbox"
 readme = "README.md"
-license = {text = "GPL-3.0"}
+license = {text = "MIT"}
 authors = [
     {name = "David Johnson", email = "david.johnson@uwa.edu.au"},
 ]
@@ -18,7 +18,7 @@ keywords = ["waves", "oceanography", "spectral analysis", "directional spectrum"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -46,7 +46,9 @@ dev = [
 ]
 docs = [
     "sphinx>=6.0",
-    "sphinx-rtd-theme>=1.0",
+    "pydata-sphinx-theme>=0.13",
+    "myst-parser>=2.0",
+    "sphinx-gallery>=0.14",
 ]
 
 [project.urls]

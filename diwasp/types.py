@@ -165,7 +165,7 @@ class SpectralMatrix:
     S: NDArray[np.floating]
     xaxisdir: float = 90.0
     funit: Literal["hz", "rad/s"] = "hz"
-    dunit: Literal["cart", "naut"] = "cart"
+    dunit: Literal["cart", "naut"] = "naut"
 
     def __post_init__(self) -> None:
         """Validate spectral matrix dimensions."""

@@ -3,7 +3,7 @@
 **DIrectional WAve SPectrum** analysis - Python port of the DIWASP Matlab toolbox
 
 [![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 DIWASP is a comprehensive toolbox for estimating directional wave spectra from measurements of water surface elevation, pressure, velocity, or acceleration. This Python implementation provides a modern, user-friendly interface built on top of industry-standard scientific Python libraries.
 
@@ -213,7 +213,7 @@ If you use DIWASP in your research, please cite the original DIWASP toolbox:
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Credits
 
