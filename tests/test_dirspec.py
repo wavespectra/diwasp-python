@@ -128,7 +128,7 @@ class TestEstimationParameters:
         """Test default parameters."""
         ep = EstimationParameters()
 
-        assert ep.method == EstimationMethod.IMLM
+        assert ep.method == EstimationMethod.EMLM
         assert ep.dres == 180
         assert ep.iter == 100
         assert ep.smooth is True

@@ -121,7 +121,7 @@ def dirspec(
     nfft = estimation_params.nfft
     if nfft is None:
         # Auto-calculate: use power of 2 close to data length
-        nfft = min(instrument_data.n_samples, 256)
+        nfft = min(instrument_data.n_samples, 2048)
         nfft = int(2 ** np.floor(np.log2(nfft)))
 
     if verbose >= 2:
@@ -187,27 +187,7 @@ def dirspec(
     sensor_y = instrument_data.layout[1, :]
     kx = compute_kx(k, theta, sensor_x, sensor_y)
 
-    # Step 9: Compute surface-elevation-equivalent spectra for energy scaling
-    # Following MATLAB: Ss(m,:) = Sxps ./ (max(tfn') .* conj(max(tfn')))
-    # This divides raw sensor auto-spectra by the maximum transfer function
-    # squared to correct for depth attenuation
-    if verbose >= 2:
-        print("Computing surface-equivalent spectra...")
-
-    Ss = np.zeros((instrument_data.n_sensors, n_freqs))
-    for i in range(instrument_data.n_sensors):
-        # Get maximum transfer function magnitude across all directions for this sensor
-        # transfer_matrix shape: [n_freqs x n_dirs x n_sensors]
-        H_max = np.max(np.abs(transfer_matrix[:, :, i]), axis=1)  # [n_freqs]
-
-        # Prevent division by very small values
-        H_max = np.maximum(H_max, 0.1)
-
-        # Compute surface-elevation-equivalent spectrum
-        # Ss = raw_auto_spectrum / |H_max|^2
-        Ss[i, :] = np.real(csd_matrix[:, i, i]) / (H_max * H_max)
-
-    # Step 10: Apply estimation method
+    # Step 9: Apply estimation method
     if verbose >= 1:
         print(f"Estimating spectrum using {estimation_params.method.value}...")
 
@@ -215,21 +195,27 @@ def dirspec(
     method = method_class(max_iter=estimation_params.iter)
     S_norm = method.estimate(csd_matrix, transfer_matrix, kx)
 
-    # Step 11: Scale spectrum to preserve energy
-    # Use the first sensor's surface-equivalent spectrum (following MATLAB convention)
-    # This ensures the total energy is in surface elevation units
+    # Step 10: Scale spectrum to preserve energy
+    # Get total energy from auto-spectra
+    total_energy = np.zeros(n_freqs)
+    for i in range(instrument_data.n_sensors):
+        # Only use elevation-equivalent sensors for energy
+        total_energy += np.real(csd_matrix[:, i, i])
+    total_energy = total_energy / instrument_data.n_sensors
+
+    # Scale directional distribution by frequency energy
     S = np.zeros((n_freqs, n_dirs))
     ddir = 360.0 / n_dirs
     for fi in range(n_freqs):
-        S[fi, :] = S_norm[fi, :] * Ss[0, fi] / ddir
+        S[fi, :] = S_norm[fi, :] * total_energy[fi] / ddir
 
-    # Step 12: Apply smoothing if requested
+    # Step 11: Apply smoothing if requested
     if estimation_params.smooth:
         if verbose >= 2:
             print("Smoothing spectrum...")
         S = _smooth_spectrum(S)
 
-    # Step 13: Create output spectral matrix
+    # Step 12: Create output spectral matrix
     spectrum = SpectralMatrix(
         freqs=freqs,
         dirs=dirs,
@@ -239,7 +225,20 @@ def dirspec(
         dunit="cart",
     )
 
-    return spectrum
+    # Step 13: Calculate statistics
+    if verbose >= 2:
+        print("Calculating statistics...")
+    info = _compute_spectral_info(spectrum)
+
+    if verbose >= 1:
+        print(f"\nResults:")
+        print(f"  Significant wave height: {info.hsig:.2f} m")
+        print(f"  Peak period: {info.tp:.2f} s")
+        print(f"  Peak direction: {info.dp:.1f} deg")
+        print(f"  Mean direction: {info.dm:.1f} deg")
+        print(f"  Directional spread: {info.spread:.1f} deg")
+
+    return spectrum, info
 
 
 def _validate_inputs(
@@ -312,9 +311,9 @@ def _compute_spectral_info(spectrum: SpectralMatrix) -> SpectralInfo:
     """Compute spectral statistics."""
     return SpectralInfo(
         hsig=hsig(spectrum.S, spectrum.freqs, spectrum.dirs),
-        tp=1.0 / peak_frequency(spectrum.S, spectrum.freqs, spectrum.dirs),
-        fp=peak_frequency(spectrum.S, spectrum.freqs, spectrum.dirs),
+        tp=1.0 / peak_frequency(spectrum.S, spectrum.freqs),
+        fp=peak_frequency(spectrum.S, spectrum.freqs),
         dp=peak_direction(spectrum.S, spectrum.freqs, spectrum.dirs),
-        dm=mean_direction(spectrum.S, spectrum.freqs, spectrum.dirs),
-        spread=directional_spread(spectrum.S, spectrum.freqs, spectrum.dirs),
+        dm=mean_direction(spectrum.S, spectrum.dirs),
+        spread=directional_spread(spectrum.S, spectrum.dirs),
     )

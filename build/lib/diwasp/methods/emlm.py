@@ -42,41 +42,52 @@ class EMLM(EstimationMethodBase):
             Directional spectrum estimate [n_freqs x n_dirs].
         """
         n_freqs, n_dirs, n_sensors = transfer_matrix.shape
-        ddir = 2.0 * np.pi / n_dirs
 
         # Initialize output spectrum
         S = np.zeros((n_freqs, n_dirs))
 
-        for ff in range(n_freqs):
-            # Invert CSD matrix
+        # Loop over frequencies
+        for fi in range(n_freqs):
+            # Get CSD matrix for this frequency [n_sensors x n_sensors]
+            C = csd_matrix[fi, :, :]
+
+            # Invert CSD matrix with regularization for stability
             try:
-                invcps = np.linalg.inv(csd_matrix[ff])
+                # Add small regularization to diagonal for numerical stability
+                reg = 1e-10 * np.trace(C) / n_sensors
+                C_reg = C + reg * np.eye(n_sensors)
+                C_inv = np.linalg.inv(C_reg)
             except np.linalg.LinAlgError:
-                invcps = np.linalg.pinv(csd_matrix[ff])
+                # If inversion fails, use pseudo-inverse
+                C_inv = np.linalg.pinv(C)
 
-            # Fully vectorized computation using broadcasting and einsum
-            H = transfer_matrix[ff, :, :]  # [n_dirs x n_sensors]
-            Hs = np.conj(transfer_matrix[ff, :, :])  # [n_dirs x n_sensors]
+            # Loop over directions
+            for di in range(n_dirs):
+                # Get transfer function and phase for this direction
+                H = transfer_matrix[fi, di, :]
+                kx_d = kx[fi, di, :]
 
-            # Phase differences: [n_dirs x n_sensors x n_sensors]
-            kx_ff = kx[ff, :, :]  # [n_dirs x n_sensors]
-            phase_diff = kx_ff[:, :, np.newaxis] - kx_ff[:, np.newaxis, :]
-            expx = np.exp(1j * phase_diff)
+                # Complex weights: H * exp(i * kx)
+                W = H * np.exp(1j * kx_d)
 
-            # Htemp[d, m, n] = H[d, n] * Hs[d, m] * expx[d, m, n]
-            Htemp = H[:, np.newaxis, :] * Hs[:, :, np.newaxis] * expx
+                # EMLM estimate: 1 / (W^H @ C_inv @ W)
+                denominator = np.dot(W.conj(), np.dot(C_inv, W))
 
-            # Sftmp[d] = sum_mn invcps[m,n] * Htemp[d,m,n]
-            Sftmp = np.einsum("mn,dmn->d", invcps, Htemp)
+                # Take real part and ensure positive
+                denom_real = np.real(denominator)
 
-            # EMLM: E = 1 / Sftmp
-            E = 1.0 / np.maximum(np.real(Sftmp), 1e-20)
+                if denom_real > 1e-20:
+                    S[fi, di] = 1.0 / denom_real
+                else:
+                    S[fi, di] = 0.0
 
-            # Normalize to sum=1 (directional distribution)
-            total = np.sum(E)
-            if total > 0:
-                E = E / total
+        # Ensure non-negative spectrum
+        S = np.maximum(S, 0.0)
 
-            S[ff, :] = E
+        # Normalize each frequency to unit directional distribution
+        for fi in range(n_freqs):
+            row_sum = np.sum(S[fi, :])
+            if row_sum > 0:
+                S[fi, :] = S[fi, :] / row_sum
 
         return S

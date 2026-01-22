@@ -448,28 +448,17 @@ class TestEndToEndEdgeCases:
 
     def test_bimodal_spectrum(self):
         """Test with bimodal spectrum (swell + wind sea)."""
-        # Create two spectra and combine
-        swell = makespec(
-            freqs=np.linspace(0.05, 0.5, 50),
-            dirs=np.linspace(0, 360, 181, endpoint=False),
-            spreading=50,
-            frequency_hz=0.08,  # 12.5s swell
-            direction_deg=180,  # From South
-            gamma=3.3,
+        # Create bimodal spectrum directly
+        combined_spec = makespec(
+            freq_range=(0.05, 0.08, 0.5),
+            theta=[180.0, 270.0],  # Swell from South, wind sea from West
+            spread=[50.0, 100.0],  # Narrower swell, broader wind sea
+            weights=[0.7, 0.3],  # Dominant swell
+            hsig=2.5,
+            depth=20.0,
+            n_freqs=50,
+            n_dirs=180,
         )
-
-        wind_sea = makespec(
-            freqs=np.linspace(0.05, 0.5, 50),
-            dirs=np.linspace(0, 360, 181, endpoint=False),
-            spreading=100,
-            frequency_hz=0.2,  # 5s wind sea
-            direction_deg=270,  # From West
-            gamma=3.3,
-        )
-
-        # Combine spectra (simple addition)
-        combined_spec = swell.copy()
-        combined_spec.S = swell.S + 0.5 * wind_sea.S  # Wind sea is smaller
 
         layout = np.array([[0, 0, 0.5], [0, 0, 1.0], [0, 0, 1.0]]).T
 

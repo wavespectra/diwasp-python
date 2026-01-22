@@ -1,8 +1,7 @@
 """Extended Maximum Entropy Principle (EMEP) for directional spectrum estimation.
 
-The EMEP uses a model selection approach based on the Akaike Information
-Criterion (AIC) to determine the optimal model order for representing
-the directional spectrum.
+The EMEP uses an exponential model with iterative coefficient estimation and
+automatic model order selection via the Akaike Information Criterion (AIC).
 
 Reference:
     Hashimoto, N. (1997) "Analysis of the directional wave spectrum from
@@ -18,14 +17,15 @@ from .base import EstimationMethodBase
 class EMEP(EstimationMethodBase):
     """Extended Maximum Entropy Principle method.
 
-    The EMEP estimates the directional spectrum using:
+    The EMEP estimates the directional spectrum using an exponential model:
 
-    1. Separate co- and quadrature components from cross-spectra
-    2. Expand using cosine/sine basis functions
-    3. Iteratively fit models of increasing order
-    4. Select optimal order using Akaike Information Criterion (AIC)
+        G(theta) = exp(sum_n [a_n * cos(n*theta) + b_n * sin(n*theta)])
 
-    This provides automatic model order selection for robust estimates.
+    The algorithm:
+    1. Separates co- and quadrature components from cross-spectra
+    2. Normalizes by standard deviations for numerical stability
+    3. Iteratively solves for Fourier coefficients using gradient descent
+    4. Selects optimal model order using AIC
     """
 
     def __init__(self, max_iter: int = 100, max_order: int | None = None):
@@ -33,7 +33,7 @@ class EMEP(EstimationMethodBase):
 
         Args:
             max_iter: Maximum iterations per model order.
-            max_order: Maximum model order to try. If None, uses n_sensors - 1.
+            max_order: Maximum model order to try. If None, determined by data.
         """
         super().__init__(max_iter)
         self.max_order = max_order
@@ -55,180 +55,205 @@ class EMEP(EstimationMethodBase):
             Directional spectrum estimate [n_freqs x n_dirs].
         """
         n_freqs, n_dirs, n_sensors = transfer_matrix.shape
-
-        # Determine maximum model order
-        max_order = self.max_order if self.max_order else n_sensors - 1
-        max_order = min(max_order, n_dirs // 2 - 1)  # Limit by Nyquist
-
-        # Initialize output spectrum
-        S = np.zeros((n_freqs, n_dirs))
+        ddir = 2.0 * np.pi / n_dirs
 
         # Direction grid in radians
         theta = np.linspace(0, 2 * np.pi, n_dirs, endpoint=False)
 
-        # Loop over frequencies
-        for fi in range(n_freqs):
-            # Get CSD matrix for this frequency
-            C = csd_matrix[fi, :, :]
+        # Precompute cos/sin basis for all possible orders
+        max_possible_order = n_dirs // 2
+        cosn = np.array([np.cos(n * theta) for n in range(1, max_possible_order + 2)])
+        sinn = np.array([np.sin(n * theta) for n in range(1, max_possible_order + 2)])
 
-            # Compute weights matrix W [n_dirs x n_sensors]
-            W = np.zeros((n_dirs, n_sensors), dtype=np.complex128)
-            for di in range(n_dirs):
-                H = transfer_matrix[fi, di, :]
-                kx_d = kx[fi, di, :]
-                W[di, :] = H * np.exp(1j * kx_d)
+        # Extract Co and Quad spectra
+        Co = np.real(csd_matrix)
+        Quad = -np.imag(csd_matrix)
 
-            # Extract co- and quadrature spectra from cross-spectral matrix
-            # Compute theoretical cross-spectrum for each direction
-            # This gives us observations to fit
+        # Compute normalization factors (standard deviations)
+        sigCo = np.zeros((n_sensors, n_sensors, n_freqs))
+        sigQuad = np.zeros((n_sensors, n_sensors, n_freqs))
 
-            # Build observation vector from cross-spectra
-            # Use upper triangle of CSD matrix
-            obs_real = []
-            obs_imag = []
-            sensor_pairs = []
+        for ff in range(n_freqs):
+            xpsx = np.real(np.outer(np.diag(csd_matrix[ff]), np.diag(csd_matrix[ff]).conj()))
+            sigCo[:, :, ff] = np.sqrt(np.maximum(0.5 * (xpsx + Co[ff] ** 2 - Quad[ff] ** 2), 1e-20))
+            sigQuad[:, :, ff] = np.sqrt(
+                np.maximum(0.5 * (xpsx - Co[ff] ** 2 + Quad[ff] ** 2), 1e-20)
+            )
 
-            for i in range(n_sensors):
-                for j in range(i, n_sensors):
-                    obs_real.append(np.real(C[i, j]))
-                    obs_imag.append(np.imag(C[i, j]))
-                    sensor_pairs.append((i, j))
+        # Initialize output spectrum
+        S = np.zeros((n_freqs, n_dirs))
 
-            n_obs = len(obs_real)
-            obs = np.array(obs_real + obs_imag)
+        for ff in range(n_freqs):
+            # Build observation vector phi and transfer matrix H
+            phi_list = []
+            H_list = []
 
-            # Try different model orders and select best by AIC
-            best_aic = np.inf
-            best_coeffs = None
-            best_order = 1
+            for m in range(n_sensors):
+                for n in range(m, n_sensors):
+                    # Compute transfer function product
+                    Hh = transfer_matrix[ff, :, m]
+                    Hhs = np.conj(transfer_matrix[ff, :, n])
+                    # Phase from kx - need to handle the indexing properly
+                    # kx is [n_freqs x n_dirs x n_sensors], need phase difference
+                    expx = np.exp(-1j * (kx[ff, :, m] - kx[ff, :, n]))
+                    Htemp = Hh * Hhs * expx
 
-            for order in range(1, max_order + 1):
-                # Number of Fourier coefficients: a0, a1..an, b1..bn
-                n_coeffs = 2 * order + 1
+                    # Check if this pair provides useful information
+                    if not np.allclose(Htemp[0], Htemp[1]):
+                        # Real part (Co-spectrum)
+                        sig_co = np.real(sigCo[m, n, ff])
+                        if sig_co > 1e-20:
+                            phi_list.append(np.real(csd_matrix[ff, m, n]) / sig_co)
+                            H_list.append(np.real(Htemp) / sig_co)
 
-                if n_coeffs > n_obs:
+                        # Imaginary part (Quad-spectrum) if spatially separated
+                        if not np.allclose(kx[ff, 0, m], kx[ff, 0, n]):
+                            sig_quad = np.real(sigQuad[m, n, ff])
+                            if sig_quad > 1e-20:
+                                phi_list.append(np.imag(csd_matrix[ff, m, n]) / sig_quad)
+                                H_list.append(np.imag(Htemp) / sig_quad)
+
+            if len(phi_list) == 0:
+                S[ff, :] = np.ones(n_dirs) / n_dirs
+                continue
+
+            M = len(phi_list)
+            phi = np.array(phi_list)  # [M]
+            Hi = np.array(H_list).T  # [n_dirs x M]
+
+            # Determine maximum model order
+            max_order = self.max_order if self.max_order else M // 2 + 1
+            max_order = min(max_order, M // 2 + 1, max_possible_order)
+
+            # Precompute cos/sin matrices for efficiency
+            cosnt = np.zeros((n_dirs, M, max_order + 1))
+            sinnt = np.zeros((n_dirs, M, max_order + 1))
+            for eni in range(max_order + 1):
+                cosnt[:, :, eni] = np.outer(np.cos((eni + 1) * theta), np.ones(M))
+                sinnt[:, :, eni] = np.outer(np.sin((eni + 1) * theta), np.ones(M))
+
+            Phione = np.outer(np.ones(n_dirs), phi)  # [n_dirs x M]
+
+            # Model order selection with AIC
+            AIC_values = []
+            a1_held = []
+            b1_held = []
+            keepgoing = True
+            order = 0
+
+            while keepgoing and order < max_order:
+                order += 1
+
+                # Initialize coefficients for this order
+                a1 = np.zeros(order)
+                b1 = np.zeros(order)
+
+                rlx = 1.0
+                count = 0
+                converged = False
+
+                while not converged:
+                    count += 1
+
+                    # Compute exponential: Fn = sum_n (a_n * cos(n*theta) + b_n * sin(n*theta))
+                    Fn = np.zeros(n_dirs)
+                    for n_idx in range(order):
+                        Fn += a1[n_idx] * cosn[n_idx] + b1[n_idx] * sinn[n_idx]
+
+                    Fnexp = np.exp(Fn)[:, np.newaxis] * np.ones((1, M))  # [n_dirs x M]
+                    PhiHF = (Phione - Hi) * Fnexp
+
+                    # Compute Z
+                    sum_Fnexp = np.sum(Fnexp, axis=0)
+                    sum_PhiHF = np.sum(PhiHF, axis=0)
+                    sum_PhiHF = np.where(np.abs(sum_PhiHF) < 1e-20, 1e-20, sum_PhiHF)
+                    Z = sum_PhiHF / sum_Fnexp
+
+                    # Build gradient matrices X and Y
+                    X = np.zeros((order, M))
+                    Y = np.zeros((order, M))
+
+                    for eni in range(order):
+                        sum_Fnexp_cos = np.sum(Fnexp * cosnt[:, :, eni], axis=0)
+                        sum_PhiHF_cos = np.sum(PhiHF * cosnt[:, :, eni], axis=0)
+                        sum_Fnexp_sin = np.sum(Fnexp * sinnt[:, :, eni], axis=0)
+                        sum_PhiHF_sin = np.sum(PhiHF * sinnt[:, :, eni], axis=0)
+
+                        X[eni, :] = Z * (sum_Fnexp_cos / sum_Fnexp - sum_PhiHF_cos / sum_PhiHF)
+                        Y[eni, :] = Z * (sum_Fnexp_sin / sum_Fnexp - sum_PhiHF_sin / sum_PhiHF)
+
+                    # Build coefficient matrix C and solve
+                    C_mat = np.hstack([X.T, Y.T])  # [M x 2*order]
+
+                    try:
+                        out, _, _, _ = np.linalg.lstsq(C_mat, Z, rcond=None)
+                    except np.linalg.LinAlgError:
+                        break
+
+                    a2 = out[:order]
+                    b2 = out[order : 2 * order]
+
+                    # Check for divergence
+                    if (
+                        np.any(np.abs(a2) > 100)
+                        or np.any(np.abs(b2) > 100)
+                        or count > self.max_iter
+                    ):
+                        if rlx > 0.0625:
+                            rlx *= 0.5
+                            count = 0
+                            a1 = np.zeros(order)
+                            b1 = np.zeros(order)
+                        else:
+                            keepgoing = False
+                            break
+                    else:
+                        a1 = a1 + rlx * a2
+                        b1 = b1 + rlx * b2
+
+                        # Check convergence
+                        if np.max(np.abs(a2)) < 0.01 and np.max(np.abs(b2)) < 0.01:
+                            converged = True
+
+                if not converged and not keepgoing:
                     break
 
-                # Build design matrix for Fourier series
-                # S(theta) = a0 + sum_k [ak * cos(k*theta) + bk * sin(k*theta)]
-                A = self._build_design_matrix(W, theta, order, sensor_pairs, n_obs)
+                # Compute AIC for this model order
+                error = Z - X.T @ a2 - Y.T @ b2
+                var_error = np.var(error)
+                if var_error > 0:
+                    aic = M * (np.log(2 * np.pi * var_error) + 1) + 4 * order + 2
+                else:
+                    aic = np.inf
 
-                # Solve least squares with regularization
-                try:
-                    coeffs, residuals, rank, singular = np.linalg.lstsq(
-                        A, obs, rcond=None
-                    )
+                AIC_values.append(aic)
+                a1_held.append(a1.copy())
+                b1_held.append(b1.copy())
 
-                    # Compute AIC
-                    if len(residuals) > 0:
-                        rss = residuals[0]
-                    else:
-                        rss = np.sum((obs - A @ coeffs) ** 2)
+                # Check if AIC is increasing (stop if worse)
+                if len(AIC_values) > 1:
+                    if np.isnan(aic) or aic > AIC_values[-2]:
+                        keepgoing = False
 
-                    n_data = len(obs)
-                    aic = n_data * np.log(rss / n_data + 1e-20) + 2 * n_coeffs
-
-                    if aic < best_aic:
-                        best_aic = aic
-                        best_coeffs = coeffs
-                        best_order = order
-
-                except np.linalg.LinAlgError:
-                    continue
-
-            # Reconstruct spectrum from best coefficients
-            if best_coeffs is not None:
-                S_dir = self._reconstruct_spectrum(theta, best_coeffs, best_order)
+            # Select best model
+            if len(AIC_values) > 0:
+                best_idx = np.argmin(AIC_values)
+                a1 = a1_held[best_idx]
+                b1 = b1_held[best_idx]
+                best_order = len(a1)
             else:
-                # Fallback to uniform distribution
-                S_dir = np.ones(n_dirs) / n_dirs
+                a1 = np.array([0.0])
+                b1 = np.array([0.0])
+                best_order = 1
 
-            # Ensure non-negative and normalize
-            S_dir = np.maximum(S_dir, 0.0)
-            total = np.sum(S_dir)
-            if total > 0:
-                S_dir = S_dir / total
+            # Reconstruct spectrum: G = exp(sum_n [a_n * cos + b_n * sin])
+            Fn = np.zeros(n_dirs)
+            for n_idx in range(best_order):
+                Fn += a1[n_idx] * cosn[n_idx] + b1[n_idx] * sinn[n_idx]
+            G = np.exp(Fn)
 
-            S[fi, :] = S_dir
-
-        return S
-
-    def _build_design_matrix(
-        self,
-        W: NDArray[np.complexfloating],
-        theta: NDArray[np.floating],
-        order: int,
-        sensor_pairs: list[tuple[int, int]],
-        n_obs: int,
-    ) -> NDArray[np.floating]:
-        """Build design matrix for Fourier series fit.
-
-        Args:
-            W: Complex weight matrix [n_dirs x n_sensors].
-            theta: Direction grid in radians [n_dirs].
-            order: Fourier series order.
-            sensor_pairs: List of (i, j) sensor pairs.
-            n_obs: Number of observations (number of sensor pairs).
-
-        Returns:
-            Design matrix [2*n_obs x (2*order+1)].
-        """
-        n_dirs = len(theta)
-        n_coeffs = 2 * order + 1
-
-        # Design matrix: maps Fourier coefficients to observed cross-spectra
-        A = np.zeros((2 * n_obs, n_coeffs))
-
-        # Build basis functions for directional distribution
-        # S(theta) = a0 + sum_k [ak * cos(k*theta) + bk * sin(k*theta)]
-        basis = np.zeros((n_dirs, n_coeffs))
-        basis[:, 0] = 1.0  # a0
-        for k in range(1, order + 1):
-            basis[:, k] = np.cos(k * theta)  # ak
-            basis[:, order + k] = np.sin(k * theta)  # bk
-
-        # For each sensor pair, compute how each basis function contributes
-        # to the cross-spectrum
-        for p, (i, j) in enumerate(sensor_pairs):
-            for c in range(n_coeffs):
-                # Contribution to real part
-                contrib_real = 0.0
-                contrib_imag = 0.0
-
-                for di in range(n_dirs):
-                    # Cross-spectrum contribution: W_i * W_j^* * basis
-                    cross = W[di, i] * W[di, j].conj()
-                    contrib_real += np.real(cross) * basis[di, c]
-                    contrib_imag += np.imag(cross) * basis[di, c]
-
-                A[p, c] = contrib_real / n_dirs
-                A[n_obs + p, c] = contrib_imag / n_dirs
-
-        return A
-
-    def _reconstruct_spectrum(
-        self,
-        theta: NDArray[np.floating],
-        coeffs: NDArray[np.floating],
-        order: int,
-    ) -> NDArray[np.floating]:
-        """Reconstruct directional spectrum from Fourier coefficients.
-
-        Args:
-            theta: Direction grid in radians [n_dirs].
-            coeffs: Fourier coefficients [2*order+1].
-            order: Fourier series order.
-
-        Returns:
-            Directional spectrum [n_dirs].
-        """
-        n_dirs = len(theta)
-        S = np.full(n_dirs, coeffs[0])  # a0 term
-
-        for k in range(1, order + 1):
-            if k < len(coeffs):
-                S += coeffs[k] * np.cos(k * theta)
-            if order + k < len(coeffs):
-                S += coeffs[order + k] * np.sin(k * theta)
+            # Normalize to sum=1 (directional distribution)
+            SG = G / np.sum(G)
+            S[ff, :] = SG
 
         return S

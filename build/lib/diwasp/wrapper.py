@@ -47,7 +47,7 @@ def diwasp(
     depth: float,
     window_length: float = 1200,
     window_overlap: float = 0,
-    method: str = "emlm",
+    method: str = "imlm",
     time_var: str = "time",
     x_var: str = "x",
     y_var: str = "y",
@@ -61,7 +61,6 @@ def diwasp(
     dres: int = 180,
     nfft: int | None = None,
     smooth: bool = True,
-    window_timestamp: Literal["start", "center", "end"] = "start",
     verbose: int = 1,
 ) -> xr.Dataset:
     """Estimate directional wave spectra from sensor data over multiple windows.
@@ -89,7 +88,7 @@ def diwasp(
         Overlap between consecutive windows in seconds.
     depth : float
         Water depth in meters.
-    method : str, default 'emlm'
+    method : str, default 'imlm'
         Estimation method: 'dftm', 'emlm', 'imlm', 'emep', or 'bdm'.
     time_var : str, default 'time'
         Name of the time variable/dimension in xarray Dataset.
@@ -121,8 +120,6 @@ def diwasp(
         FFT length. If None, auto-determined from window length.
     smooth : bool, default True
         Apply spectral smoothing.
-    window_timestamp: Literal["start", "center", "end"], optional
-        Timestamp to use for window. Default is 'start' of window.
     verbose : int, default 1
         Verbosity level (0=silent, 1=normal, 2=detailed).
 
@@ -131,6 +128,7 @@ def diwasp(
     xr.Dataset
         wavespectra-compatible Dataset with dimensions (time, freq, dir) containing:
         - efth: Spectral energy density [m^2/Hz/degree]
+        - Attributes: hsig, tp, dp, dm, spread for each time window
 
     Raises
     ------
@@ -255,6 +253,7 @@ def diwasp(
 
     # Process each window
     spectra_list = []
+    info_list = []
     window_times = []
 
     for i in range(n_windows):
@@ -264,14 +263,9 @@ def diwasp(
         # Extract window data
         window_data = sensor_data[start_idx:end_idx, :]
 
-        if window_timestamp == "center":
-            # Get window center time
-            window_idx = start_idx + window_samples // 2
-        elif window_timestamp == "end":
-            window_idx = end_idx - 1
-        else:
-            window_idx = start_idx
-        window_time = time_index[window_idx]
+        # Get window center time
+        center_idx = start_idx + window_samples // 2
+        window_time = time_index[center_idx]
         window_times.append(window_time)
 
         if verbose >= 2:
@@ -289,7 +283,7 @@ def diwasp(
         )
 
         # Estimate spectrum
-        spectrum = dirspec(
+        spectrum, info = dirspec(
             instrument,
             estimation_params=est_params,
             freqs=freqs,
@@ -299,6 +293,7 @@ def diwasp(
 
         # Store results
         spectra_list.append(spectrum.S)
+        info_list.append(info)
 
         # Update freqs from first result if not specified
         if freqs is None:
@@ -306,7 +301,7 @@ def diwasp(
 
     # Build output Dataset
     output = _build_output_dataset(
-        spectra_list, window_times, freqs, dirs, spectrum.xaxisdir, spectrum.funit, spectrum.dunit
+        spectra_list, info_list, window_times, freqs, dirs, spectrum.xaxisdir
     )
 
     if verbose >= 1:
@@ -515,68 +510,41 @@ def _process_dataset(
 
 def _build_output_dataset(
     spectra_list: list[NDArray],
+    info_list: list[SpectralInfo],
     window_times: list,
     freqs: NDArray,
     dirs: NDArray,
     xaxisdir: float,
-    funit: str = "hz",
-    dunit: str = "cart",
 ) -> xr.Dataset:
     """Build wavespectra-compatible output Dataset.
-
-    Args:
-        spectra_list: List of spectral matrices.
-        window_times: List of window center times.
-        freqs: Frequency array.
-        dirs: Direction array.
-        xaxisdir: Reference x-axis direction.
-        funit: Frequency units ('hz' or 'rad/s').
-        dunit: Direction units ('cart' or 'naut').
 
     Returns:
         xarray Dataset with dimensions (time, freq, dir)
     """
-    from .utils import (
-        hsig,
-        mean_direction,
-        one_sided_directional_spread,
-        peak_direction,
-        peak_frequency,
-    )
-
     # Stack spectra into 3D array [time, freq, dir]
     efth = np.stack(spectra_list, axis=0)
-    n_times = len(spectra_list)
+
+    # Extract statistics
+    hsig = np.array([info.hsig for info in info_list])
+    tp = np.array([info.tp for info in info_list])
+    fp = np.array([info.fp for info in info_list])
+    dp = np.array([info.dp for info in info_list])
+    dm = np.array([info.dm for info in info_list])
+    spread = np.array([info.spread for info in info_list])
 
     # Convert times to numpy datetime64
     time_values = np.array(window_times, dtype="datetime64[ns]")
-
-    # Compute spectral statistics for each time step
-    hsig_arr = np.zeros(n_times)
-    tp_arr = np.zeros(n_times)
-    fp_arr = np.zeros(n_times)
-    dp_arr = np.zeros(n_times)
-    dm_arr = np.zeros(n_times)
-    spread_arr = np.zeros(n_times)
-
-    for i, S in enumerate(spectra_list):
-        hsig_arr[i] = hsig(S, freqs, dirs)
-        fp_arr[i] = peak_frequency(S, freqs, dirs)
-        tp_arr[i] = 1.0 / fp_arr[i] if fp_arr[i] > 0 else np.nan
-        dp_arr[i] = peak_direction(S, freqs, dirs)
-        dm_arr[i] = mean_direction(S, freqs, dirs)
-        spread_arr[i] = one_sided_directional_spread(S, freqs, dirs)
 
     # Create Dataset
     ds = xr.Dataset(
         {
             "efth": (["time", "freq", "dir"], efth),
-            "hsig": (["time"], hsig_arr),
-            "tp": (["time"], tp_arr),
-            "fp": (["time"], fp_arr),
-            "dp": (["time"], dp_arr),
-            "dm": (["time"], dm_arr),
-            "spread": (["time"], spread_arr),
+            "hsig": (["time"], hsig),
+            "tp": (["time"], tp),
+            "fp": (["time"], fp),
+            "dp": (["time"], dp),
+            "dm": (["time"], dm),
+            "spread": (["time"], spread),
         },
         coords={
             "time": time_values,
@@ -590,13 +558,9 @@ def _build_output_dataset(
         },
     )
 
-    # Construct units string based on funit and dunit
-    freq_unit = "Hz" if funit == "hz" else "rad/s"
-    dir_unit = "degree" if dunit == "cart" else "degree"  # Both use degrees
-
     # Add variable attributes
     ds["efth"].attrs = {
-        "units": f"m^2/{freq_unit}/{dir_unit}",
+        "units": "m^2/Hz/degree",
         "long_name": "Spectral energy density",
         "standard_name": "sea_surface_wave_variance_spectral_density",
     }
@@ -607,26 +571,36 @@ def _build_output_dataset(
     }
     ds["tp"].attrs = {
         "units": "s",
-        "long_name": "Peak wave period",
+        "long_name": "Peak period",
         "standard_name": "sea_surface_wave_period_at_variance_spectral_density_maximum",
     }
     ds["fp"].attrs = {
         "units": "Hz",
-        "long_name": "Peak wave frequency",
+        "long_name": "Peak frequency",
     }
     ds["dp"].attrs = {
         "units": "degree",
-        "long_name": "Peak wave direction",
+        "long_name": "Peak direction",
         "standard_name": "sea_surface_wave_from_direction_at_variance_spectral_density_maximum",
     }
     ds["dm"].attrs = {
         "units": "degree",
-        "long_name": "Mean wave direction",
+        "long_name": "Mean direction",
         "standard_name": "sea_surface_wave_from_direction",
     }
     ds["spread"].attrs = {
         "units": "degree",
         "long_name": "Directional spread",
+    }
+    ds["freq"].attrs = {
+        "units": "Hz",
+        "long_name": "Frequency",
+        "standard_name": "sea_surface_wave_frequency",
+    }
+    ds["dir"].attrs = {
+        "units": "degree",
+        "long_name": "Direction",
+        "standard_name": "sea_surface_wave_from_direction",
     }
 
     return ds

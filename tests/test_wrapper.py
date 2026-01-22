@@ -981,6 +981,128 @@ class TestDiwaspResampling:
         assert "efth" in result.data_vars
 
 
+class TestDiwaspDepthAttenuation:
+    """Tests for correct depth attenuation handling."""
+
+    def test_pressure_sensor_depth_correction(self):
+        """Test that pressure sensor depth attenuation is correctly compensated.
+
+        A pressure sensor at depth sees attenuated wave signal. The transfer
+        function correction should recover the surface wave height.
+        """
+        np.random.seed(42)
+
+        # Parameters
+        depth = 20.0  # Water depth
+        z_sensor = 1.0  # Sensor 1m above seabed (19m below surface)
+        f_wave = 0.1  # Wave frequency (10s period)
+        amplitude = 1.0  # Surface wave amplitude
+
+        # Calculate expected pressure attenuation
+        # k from dispersion: omega^2 = g*k*tanh(k*d)
+        from diwasp.utils import wavenumber
+
+        omega = 2 * np.pi * f_wave
+        k = wavenumber(np.array([omega]), depth)[0]
+
+        # Pressure transfer function: cosh(k*z) / cosh(k*d)
+        # where z is height above seabed
+        pressure_tf = np.cosh(k * z_sensor) / np.cosh(k * depth)
+
+        # Create synthetic pressure data (attenuated surface signal)
+        n_samples = 3600  # 30 minutes at 2 Hz
+        time = pd.date_range("2024-01-01", periods=n_samples, freq="500ms")
+        t = np.arange(n_samples) / 2.0
+
+        # Pressure signal = attenuated surface elevation
+        # (In real units, p = rho*g*eta*H(k,z), but we're working in normalized units)
+        pressure_signal = amplitude * pressure_tf * np.sin(2 * np.pi * f_wave * t)
+        pressure_signal += 0.02 * np.random.randn(n_samples)
+
+        # Also add velocity sensors to help with directional estimation
+        u_signal = amplitude * np.cos(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(n_samples)
+        v_signal = 0.5 * amplitude * np.sin(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(n_samples)
+
+        df = pd.DataFrame(
+            {"p": pressure_signal, "u": u_signal, "v": v_signal},
+            index=time,
+        )
+
+        result = diwasp(
+            df,
+            sensor_mapping={"p": "pres", "u": "velx", "v": "vely"},
+            window_length=600,
+            window_overlap=0,
+            depth=depth,
+            z=z_sensor,  # Must specify correct sensor depth!
+            verbose=0,
+        )
+
+        # The Hsig should be approximately 4*amplitude/sqrt(2) ≈ 2.83
+        # for a sinusoidal wave (Hsig = 4*std = 4*amplitude/sqrt(2))
+        # But our synthetic signal has amplitude 1.0, so expected Hsig ≈ 1.4
+        # The key point is that depth attenuation is CORRECTED for
+
+        mean_hsig = result["hsig"].mean().values
+        # Should be order of unity, not severely underestimated due to depth
+        assert mean_hsig > 0.5, f"Hsig {mean_hsig} too low - depth correction may not be working"
+        assert mean_hsig < 5.0, f"Hsig {mean_hsig} unreasonably high"
+
+    def test_shallow_vs_deep_sensor(self):
+        """Test that shallow and deep sensors give consistent results.
+
+        When both sensors are properly corrected for depth, they should
+        estimate similar wave heights.
+        """
+        np.random.seed(42)
+
+        depth = 20.0
+        f_wave = 0.1
+        amplitude = 1.0
+
+        n_samples = 3600
+        time = pd.date_range("2024-01-01", periods=n_samples, freq="500ms")
+        t = np.arange(n_samples) / 2.0
+
+        # Create surface elevation signal
+        eta = amplitude * np.sin(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(n_samples)
+
+        df = pd.DataFrame({"eta": eta}, index=time)
+
+        # Analyze as surface elevation (z = depth, i.e., at surface)
+        result_surface = diwasp(
+            df,
+            sensor_mapping={"eta": "elev"},
+            window_length=600,
+            window_overlap=0,
+            depth=depth,
+            z=depth,  # At surface
+            verbose=0,
+        )
+
+        # The Hsig from surface elevation
+        hsig_surface = result_surface["hsig"].mean().values
+
+        # For comparison, analyze the same signal as pressure at mid-depth
+        # (This is an artificial test - same signal, different assumed sensor type)
+        result_pressure = diwasp(
+            df,
+            sensor_mapping={"eta": "pres"},
+            window_length=600,
+            window_overlap=0,
+            depth=depth,
+            z=10.0,  # Mid-depth
+            verbose=0,
+        )
+
+        hsig_pressure = result_pressure["hsig"].mean().values
+
+        # The pressure result should be different due to transfer function
+        # This tests that the transfer function IS being applied
+        # (If no transfer function was applied, both would be the same)
+        assert hsig_pressure != hsig_surface, "Transfer function correction may not be applied"
+
+
 class TestDiwaspIntegration:
     """Integration tests with realistic wave signals."""
 

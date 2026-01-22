@@ -108,9 +108,7 @@ class TestDFTM:
         # Create positive-definite CSD
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -134,9 +132,7 @@ class TestEMLM:
         # Create positive-definite CSD
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.random.randn(n_freqs, n_dirs, n_sensors) + 1j * np.random.randn(
@@ -155,9 +151,7 @@ class TestEMLM:
         n_freqs, n_dirs, n_sensors = 5, 18, 3
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -173,11 +167,10 @@ class TestIMLM:
 
     def test_parameters(self):
         """Test custom parameters."""
-        method = IMLM(max_iter=50, gamma=0.2, beta=0.5, alpha=0.2)
+        method = IMLM(max_iter=50, gamma=0.2, alpha=0.2)
 
         assert method.max_iter == 50
         assert method.gamma == 0.2
-        assert method.beta == 0.5
         assert method.alpha == 0.2
 
     def test_output_shape(self):
@@ -187,9 +180,7 @@ class TestIMLM:
         n_freqs, n_dirs, n_sensors = 5, 18, 3
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -210,9 +201,7 @@ class TestEMEP:
         n_freqs, n_dirs, n_sensors = 5, 36, 3
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -233,9 +222,7 @@ class TestBDM:
         n_freqs, n_dirs, n_sensors = 5, 36, 3
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -252,9 +239,7 @@ class TestBDM:
         n_freqs, n_dirs, n_sensors = 3, 18, 3
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)
@@ -278,9 +263,7 @@ class TestMethodComparison:
         # Create positive-definite CSD
         csd = np.zeros((n_freqs, n_sensors, n_sensors), dtype=complex)
         for fi in range(n_freqs):
-            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(
-                n_sensors, n_sensors
-            )
+            A = np.random.randn(n_sensors, n_sensors) + 1j * np.random.randn(n_sensors, n_sensors)
             csd[fi] = A @ A.conj().T + 0.1 * np.eye(n_sensors)
 
         transfer = np.ones((n_freqs, n_dirs, n_sensors), dtype=complex)

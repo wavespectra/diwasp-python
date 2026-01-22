@@ -42,38 +42,40 @@ class DFTM(EstimationMethodBase):
             Directional spectrum estimate [n_freqs x n_dirs].
         """
         n_freqs, n_dirs, n_sensors = transfer_matrix.shape
-        ddir = 2.0 * np.pi / n_dirs
 
         # Initialize output spectrum
         S = np.zeros((n_freqs, n_dirs))
 
-        for ff in range(n_freqs):
-            # Fully vectorized computation using broadcasting and einsum
-            # H[n_dirs, n_sensors]
-            H = transfer_matrix[ff, :, :]  # [n_dirs x n_sensors]
-            Hs = np.conj(transfer_matrix[ff, :, :])  # [n_dirs x n_sensors]
+        # Loop over frequencies
+        for fi in range(n_freqs):
+            # Get CSD matrix for this frequency [n_sensors x n_sensors]
+            C = csd_matrix[fi, :, :]
 
-            # Phase differences: [n_dirs x n_sensors x n_sensors]
-            kx_ff = kx[ff, :, :]  # [n_dirs x n_sensors]
-            phase_diff = kx_ff[:, :, np.newaxis] - kx_ff[:, np.newaxis, :]
-            expx = np.exp(1j * phase_diff)
+            # Loop over directions
+            for di in range(n_dirs):
+                # Get transfer function and phase for this direction
+                # H: [n_sensors], kx_d: [n_sensors]
+                H = transfer_matrix[fi, di, :]
+                kx_d = kx[fi, di, :]
 
-            # Htemp[d, m, n] = H[d, n] * Hs[d, m] * expx[d, m, n]
-            Htemp = H[:, np.newaxis, :] * Hs[:, :, np.newaxis] * expx
+                # Complex weights: H * exp(i * kx)
+                W = H * np.exp(1j * kx_d)
 
-            # Sftmp[d] = sum_mn C[m,n] * Htemp[d,m,n]
-            Sftmp = np.einsum("mn,dmn->d", csd_matrix[ff], Htemp)
+                # Spectral estimate: sum_nm W_n * C_nm * W_m*
+                # This is equivalent to W^H @ C @ W (Hermitian quadratic form)
+                S_complex = np.dot(W.conj(), np.dot(C, W))
 
-            # Take real part and ensure non-negative
-            E = np.real(Sftmp)
-            E = np.maximum(E, 0.0)
+                # Take real part (should be real for valid spectrum)
+                S[fi, di] = np.real(S_complex)
 
-            # Normalize to unit directional distribution
-            # Note: The actual energy scaling is handled by the calling function
-            total = np.sum(E)
-            if total > 0:
-                E = E / total
+        # Ensure non-negative spectrum
+        S = np.maximum(S, 0.0)
 
-            S[ff, :] = E
+        # Normalize to have unit energy distribution over directions
+        # (actual energy is in the frequency spectrum)
+        for fi in range(n_freqs):
+            row_sum = np.sum(S[fi, :])
+            if row_sum > 0:
+                S[fi, :] = S[fi, :] / row_sum
 
         return S

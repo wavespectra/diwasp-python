@@ -19,38 +19,31 @@ class IMLM(EstimationMethodBase):
 
     The IMLM improves upon EMLM by using iterative refinement:
 
-    1. Start with initial estimate from EMLM
-    2. Iteratively update using weighted likelihood
-    3. Apply relaxation to ensure convergence
+    1. Start with initial EMLM estimate (inverse CSD method)
+    2. Iteratively update: ei = gamma * ((Eo - T) + alpha * (T - Told))
+    3. Additive update: E = E + ei
 
     Parameters for iteration control:
     - gamma: Step size relaxation (default 0.1)
-    - beta: Regularization parameter (default 1.0)
-    - alpha: Convergence factor (default 0.1)
+    - alpha: Momentum factor for smoothing updates (default 0.1)
     """
 
     def __init__(
         self,
         max_iter: int = 100,
         gamma: float = 0.1,
-        beta: float = 1.0,
         alpha: float = 0.1,
-        tol: float = 1e-6,
     ):
         """Initialize IMLM method.
 
         Args:
             max_iter: Maximum number of iterations.
             gamma: Step size relaxation parameter.
-            beta: Regularization parameter.
-            alpha: Convergence factor.
-            tol: Convergence tolerance.
+            alpha: Momentum factor for update smoothing.
         """
         super().__init__(max_iter)
         self.gamma = gamma
-        self.beta = beta
         self.alpha = alpha
-        self.tol = tol
 
     def estimate(
         self,
@@ -69,78 +62,73 @@ class IMLM(EstimationMethodBase):
             Directional spectrum estimate [n_freqs x n_dirs].
         """
         n_freqs, n_dirs, n_sensors = transfer_matrix.shape
+        ddir = 2.0 * np.pi / n_dirs
 
         # Initialize output spectrum
         S = np.zeros((n_freqs, n_dirs))
 
-        # Loop over frequencies
-        for fi in range(n_freqs):
-            # Get CSD matrix for this frequency [n_sensors x n_sensors]
-            C = csd_matrix[fi, :, :]
+        for ff in range(n_freqs):
+            # Precompute transfer function products using broadcasting
+            # H[n_dirs, n_sensors], Hs[n_dirs, n_sensors]
+            H = transfer_matrix[ff, :, :]  # [n_dirs x n_sensors]
+            Hs = np.conj(transfer_matrix[ff, :, :])  # [n_dirs x n_sensors]
 
-            # Compute weights matrix W [n_dirs x n_sensors]
-            W = np.zeros((n_dirs, n_sensors), dtype=np.complex128)
-            for di in range(n_dirs):
-                H = transfer_matrix[fi, di, :]
-                kx_d = kx[fi, di, :]
-                W[di, :] = H * np.exp(1j * kx_d)
+            # Phase differences: [n_dirs x n_sensors x n_sensors]
+            # phase_diff[d, m, n] = kx[ff, d, m] - kx[ff, d, n]
+            kx_ff = kx[ff, :, :]  # [n_dirs x n_sensors]
+            phase_diff = kx_ff[:, :, np.newaxis] - kx_ff[:, np.newaxis, :]
 
-            # Initial estimate using uniform distribution
-            S_dir = np.ones(n_dirs) / n_dirs
+            expx = np.exp(1j * phase_diff)  # [n_dirs x n_sensors x n_sensors]
+            iexpx = np.exp(-1j * phase_diff)
+
+            # Htemp[d, m, n] = H[d, n] * Hs[d, m] * expx[d, m, n]
+            Htemp = H[:, np.newaxis, :] * Hs[:, :, np.newaxis] * expx
+            iHtemp = H[:, np.newaxis, :] * Hs[:, :, np.newaxis] * iexpx
+
+            # Initial EMLM estimate
+            try:
+                invcps = np.linalg.inv(csd_matrix[ff])
+            except np.linalg.LinAlgError:
+                invcps = np.linalg.pinv(csd_matrix[ff])
+
+            # Sftmp[d] = sum_mn invcps[m,n] * Htemp[d,m,n]
+            Sftmp = np.einsum("mn,dmn->d", invcps, Htemp)
+
+            # Initial estimate Eo (normalized to sum=1)
+            Eo = 1.0 / np.maximum(np.real(Sftmp), 1e-20)
+            Eo = Eo / np.sum(Eo)
+
+            E = Eo.copy()
+            T = Eo.copy()
 
             # Iterative refinement
             for _ in range(self.max_iter):
-                S_old = S_dir.copy()
+                # Compute model covariance: ixps[m,n] = sum_d iHtemp[d,m,n] * E[d] * ddir
+                ixps = np.einsum("dmn,d->mn", iHtemp, E) * ddir
 
-                # Compute weighted CSD estimate
-                # C_model = sum_theta S(theta) * W(theta) * W(theta)^H
-                C_model = np.zeros((n_sensors, n_sensors), dtype=np.complex128)
-                for di in range(n_dirs):
-                    C_model += S_dir[di] * np.outer(W[di, :], W[di, :].conj())
-
-                # Regularize model covariance
-                reg = self.beta * np.trace(C_model) / n_sensors
-                if reg < 1e-20:
-                    reg = 1e-10
-                C_model_reg = C_model + reg * np.eye(n_sensors)
-
+                # Invert model covariance
                 try:
-                    C_model_inv = np.linalg.inv(C_model_reg)
+                    invcps = np.linalg.inv(ixps)
                 except np.linalg.LinAlgError:
-                    C_model_inv = np.linalg.pinv(C_model_reg)
+                    invcps = np.linalg.pinv(ixps)
 
-                # Update spectrum estimate
-                S_new = np.zeros(n_dirs)
-                for di in range(n_dirs):
-                    w = W[di, :]
-                    # IMLM update: S_new = S_old * sqrt(w^H @ C_model_inv @ C @ C_model_inv @ w)
-                    #                              / (w^H @ C_model_inv @ w)
-                    w_Cinv = np.dot(w.conj(), C_model_inv)
+                # Compute new target T: Sftmp[d] = sum_mn invcps[m,n] * Htemp[d,m,n]
+                Sftmp = np.einsum("mn,dmn->d", invcps, Htemp)
 
-                    numerator = np.real(np.dot(w_Cinv, np.dot(C, np.dot(C_model_inv, w))))
-                    denominator = np.real(np.dot(w_Cinv, w))
+                Told = T.copy()
+                T = 1.0 / np.maximum(np.real(Sftmp), 1e-20)
+                T = T / np.sum(T)
 
-                    if denominator > 1e-20 and numerator > 0:
-                        update = np.sqrt(numerator / denominator)
-                        S_new[di] = S_old[di] * ((1 - self.gamma) + self.gamma * update)
-                    else:
-                        S_new[di] = S_old[di]
+                # IMLM update: ei = gamma * ((Eo - T) + alpha * (T - Told))
+                ei = self.gamma * ((Eo - T) + self.alpha * (T - Told))
+                E = E + ei
 
                 # Ensure non-negative
-                S_new = np.maximum(S_new, 0.0)
+                E = np.maximum(E, 1e-20)
 
-                # Normalize
-                total = np.sum(S_new)
-                if total > 0:
-                    S_new = S_new / total
+                # Normalize to sum=1
+                E = E / np.sum(E)
 
-                # Apply relaxation
-                S_dir = (1 - self.alpha) * S_old + self.alpha * S_new
-
-                # Check convergence
-                if np.max(np.abs(S_dir - S_old)) < self.tol:
-                    break
-
-            S[fi, :] = S_dir
+            S[ff, :] = E
 
         return S

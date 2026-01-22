@@ -121,15 +121,6 @@ class VelocityXTransfer(TransferFunction):
     where k_z = cosh(k*z) / sinh(k*d)
     """
 
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize velocity transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
-
     def __call__(
         self,
         sigma: NDArray[np.floating],
@@ -148,10 +139,6 @@ class VelocityXTransfer(TransferFunction):
 
         k_z = cosh_kz / sinh_kd
 
-        # Apply minimum cutoff to prevent excessive noise amplification
-        # (matches MATLAB: Kz(find(Kz<0.1))=0.1)
-        k_z = np.maximum(k_z, self.min_cutoff)
-
         # H = sigma * k_z * cos(theta)
         # Shape: [n_freqs x n_dirs]
         H = np.outer(sigma * k_z, np.cos(theta))
@@ -166,15 +153,6 @@ class VelocityYTransfer(TransferFunction):
 
     where k_z = cosh(k*z) / sinh(k*d)
     """
-
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize velocity transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
 
     def __call__(
         self,
@@ -191,9 +169,6 @@ class VelocityYTransfer(TransferFunction):
 
         k_z = cosh_kz / sinh_kd
 
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
-
         # H = sigma * k_z * sin(theta)
         H = np.outer(sigma * k_z, np.sin(theta))
 
@@ -207,15 +182,6 @@ class VelocityZTransfer(TransferFunction):
 
     where k_z = sinh(k*z) / sinh(k*d)
     """
-
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize velocity transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
 
     def __call__(
         self,
@@ -231,9 +197,6 @@ class VelocityZTransfer(TransferFunction):
         sinh_kd = np.maximum(sinh_kd, 1e-10)
 
         k_z = sinh_kz / sinh_kd
-
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
 
         # H = sigma * k_z (same for all directions)
         H = sigma * k_z
@@ -268,15 +231,6 @@ class AccelerationXTransfer(TransferFunction):
     H(f, theta) = sigma^2 * k_z * cos(theta)
     """
 
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize acceleration transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
-
     def __call__(
         self,
         sigma: NDArray[np.floating],
@@ -292,9 +246,6 @@ class AccelerationXTransfer(TransferFunction):
 
         k_z = cosh_kz / sinh_kd
 
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
-
         # H = sigma^2 * k_z * cos(theta)
         H = np.outer(sigma**2 * k_z, np.cos(theta))
 
@@ -306,15 +257,6 @@ class AccelerationYTransfer(TransferFunction):
 
     H(f, theta) = sigma^2 * k_z * sin(theta)
     """
-
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize acceleration transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
 
     def __call__(
         self,
@@ -331,9 +273,6 @@ class AccelerationYTransfer(TransferFunction):
 
         k_z = cosh_kz / sinh_kd
 
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
-
         # H = sigma^2 * k_z * sin(theta)
         H = np.outer(sigma**2 * k_z, np.sin(theta))
 
@@ -347,15 +286,6 @@ class AccelerationZTransfer(TransferFunction):
 
     where k_z = sinh(k*z) / sinh(k*d)
     """
-
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize acceleration transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
 
     def __call__(
         self,
@@ -371,9 +301,6 @@ class AccelerationZTransfer(TransferFunction):
         sinh_kd = np.maximum(sinh_kd, 1e-10)
 
         k_z = sinh_kz / sinh_kd
-
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
 
         H = sigma**2 * k_z
         n_dirs = len(theta)
@@ -447,15 +374,6 @@ class DisplacementXTransfer(TransferFunction):
     Same as pressure transfer divided by (i * sigma).
     """
 
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize displacement transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
-
     def __call__(
         self,
         sigma: NDArray[np.floating],
@@ -471,9 +389,6 @@ class DisplacementXTransfer(TransferFunction):
 
         k_z = cosh_kz / sinh_kd
 
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
-
         # H = k_z * cos(theta) / (i * sigma) = -i * k_z * cos(theta) / sigma
         # Avoid division by zero at sigma = 0
         sigma_safe = np.maximum(np.abs(sigma), 1e-10)
@@ -484,15 +399,6 @@ class DisplacementXTransfer(TransferFunction):
 
 class DisplacementYTransfer(TransferFunction):
     """Transfer function for horizontal displacement (y-component)."""
-
-    def __init__(self, min_cutoff: float = 0.1):
-        """Initialize displacement transfer function.
-
-        Args:
-            min_cutoff: Minimum k_z value to prevent excessive
-                amplification at high frequencies.
-        """
-        self.min_cutoff = min_cutoff
 
     def __call__(
         self,
@@ -508,9 +414,6 @@ class DisplacementYTransfer(TransferFunction):
         sinh_kd = np.maximum(sinh_kd, 1e-10)
 
         k_z = cosh_kz / sinh_kd
-
-        # Apply minimum cutoff to prevent excessive noise amplification
-        k_z = np.maximum(k_z, self.min_cutoff)
 
         sigma_safe = np.maximum(np.abs(sigma), 1e-10)
         H = np.outer(-1j * k_z / sigma_safe, np.sin(theta))

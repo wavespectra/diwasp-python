@@ -208,7 +208,7 @@ def hsig(
 def peak_frequency(
     S: NDArray[np.floating],
     freqs: NDArray[np.floating],
-    dirs: NDArray[np.floating] | None = None,
+    dirs: NDArray[np.floating],
 ) -> float:
     """Calculate peak frequency from directional spectrum.
 
@@ -313,82 +313,6 @@ def directional_spread(
     spread_rad = np.sqrt(-2.0 * np.log(r)) if r > 0 else np.pi
 
     return float(np.rad2deg(spread_rad))
-
-
-def one_sided_directional_spread(
-    S: NDArray[np.floating],
-    freqs: NDArray[np.floating],
-    dirs: NDArray[np.floating],
-) -> float:
-    """One-sided directional spread Dspr.
-
-    Matches the wavespectra definition: the one-sided directional width
-    of the spectrum in degrees.
-
-    The formula is: dspr = sqrt(2 * R2D^2 * (1 - sqrt(a^2 + b^2) / m0))
-
-    Where:
-        - R2D = 180/pi (radians to degrees conversion)
-        - a = integral of S * sin(theta) over freq and dir
-        - b = integral of S * cos(theta) over freq and dir
-        - m0 = integral of S over freq and dir (total energy)
-        - theta = 180 + 90 - dir (wavespectra convention with theta=90)
-
-    Args:
-        S: Directional spectrum [n_freqs x n_dirs] in m^2/Hz/deg.
-        freqs: Frequency array in Hz.
-        dirs: Direction array in degrees.
-
-    Returns:
-        Directional spread in degrees.
-    """
-    R2D = 180.0 / np.pi  # Radians to degrees
-
-    # Direction resolution (constant for circular grid)
-    if len(dirs) > 1:
-        dd = np.abs(np.mean(np.diff(dirs)))
-    else:
-        dd = 1.0
-
-    # Frequency resolution array (like wavespectra dfarr using gradient)
-    if len(freqs) > 1:
-        dfarr = np.gradient(freqs)
-    else:
-        dfarr = np.array([1.0])
-
-    # Convert directions to radians with wavespectra convention
-    # wavespectra uses: theta = 180 + 90 - dir (with theta=90 default)
-    dirs_rad = np.deg2rad(180.0 + 90.0 - dirs)
-
-    sin_dirs = np.sin(dirs_rad)
-    cos_dirs = np.cos(dirs_rad)
-
-    # Step 1: Compute directional moments per frequency (like wavespectra momd)
-    # moms[f] = sum_d(S[f,d] * sin(theta) * dd)
-    moms_f = np.sum(S * sin_dirs[np.newaxis, :], axis=1) * dd  # [n_freqs]
-    momc_f = np.sum(S * cos_dirs[np.newaxis, :], axis=1) * dd  # [n_freqs]
-
-    # Step 2: Integrate over frequency (like wavespectra momf on moms/momc)
-    # a = sum_f(moms[f] * df[f])
-    a = np.sum(moms_f * dfarr)
-    b = np.sum(momc_f * dfarr)
-
-    # Step 3: Total energy (like wavespectra mom0)
-    # First compute 1D directional spectrum: sum_f(S[f,d] * df[f]) for each d
-    dir_spectrum = np.sum(S * dfarr[:, np.newaxis], axis=0)  # [n_dirs]
-    # Then integrate over directions: sum_d(dir_spectrum * dd)
-    m0 = np.sum(dir_spectrum) * dd
-
-    # Directional spread formula from wavespectra
-    if m0 > 0:
-        r = np.sqrt(a**2 + b**2) / m0
-        # Clamp r to [0, 1] to avoid sqrt of negative
-        r = np.clip(r, 0.0, 1.0)
-        dspr = np.sqrt(2.0 * R2D**2 * (1.0 - r))
-    else:
-        dspr = 0.0
-
-    return float(dspr)
 
 
 def detrend_data(data: NDArray[np.floating]) -> NDArray[np.floating]:

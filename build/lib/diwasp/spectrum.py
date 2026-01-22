@@ -192,9 +192,6 @@ def make_wave_data(
     Creates time series measurements that would be observed by sensors
     measuring the wave field described by the spectrum.
 
-    Uses FFT-based synthesis to correctly handle energy when summing
-    components at the same frequency but different directions.
-
     Args:
         spectrum: Directional wave spectrum.
         instrument_data: Sensor configuration (used for layout and types).
@@ -212,53 +209,29 @@ def make_wave_data(
     fs = instrument_data.fs
     depth = instrument_data.depth
 
+    # Time vector
+    t = np.arange(n_samples) / fs
+
     # Initialize output
     data = np.zeros((n_samples, n_sensors))
 
-    # Frequency and direction grids from spectrum
-    freqs_spec = spectrum.freqs
+    # Frequency and direction grids
+    freqs = spectrum.freqs
     dirs_rad = np.deg2rad(spectrum.dirs)
-    n_dirs = len(dirs_rad)
 
-    # Calculate wavenumbers for spectrum frequencies
-    sigma_spec = frequency_to_angular(freqs_spec)
-    k_spec = wavenumber(sigma_spec, depth)
-
-    # FFT frequency grid (one-sided, positive frequencies only)
-    # For n_samples, FFT has frequencies 0, df, 2*df, ... up to Nyquist
-    df_fft = fs / n_samples
-    n_fft_pos = n_samples // 2 + 1  # Number of positive frequency bins
-    freqs_fft = np.arange(n_fft_pos) * df_fft
-
-    # Amplitude from spectrum: A = sqrt(2 * S * df * ddir)
-    # For complex FFT coefficient: |X(f)| = A * n_samples / 2
-    # Note: S is in m^2/(Hz*degree), so ddir must be in degrees
-    df_spec = np.mean(np.diff(freqs_spec)) if len(freqs_spec) > 1 else 1.0
-    ddir_deg = np.mean(np.diff(spectrum.dirs)) if len(spectrum.dirs) > 1 else 1.0
-
-    # Interpolate spectrum to FFT frequencies
-    # For frequencies outside spectrum range, use zero
-    S_interp = np.zeros((n_fft_pos, n_dirs))
-    k_interp = np.zeros(n_fft_pos)
-    sigma_interp = frequency_to_angular(freqs_fft)
-
-    # Only compute for frequencies within spectrum range
-    freq_mask = (freqs_fft >= freqs_spec[0]) & (freqs_fft <= freqs_spec[-1])
-    if np.any(freq_mask):
-        for di in range(n_dirs):
-            S_interp[freq_mask, di] = np.interp(
-                freqs_fft[freq_mask], freqs_spec, spectrum.S[:, di]
-            )
-        k_interp[freq_mask] = np.interp(freqs_fft[freq_mask], freqs_spec, k_spec)
+    # Calculate wavenumbers
+    sigma = frequency_to_angular(freqs)
+    k = wavenumber(sigma, depth)
 
     # Generate random phases for each frequency/direction component
-    phases = np.random.uniform(0, 2 * np.pi, (n_fft_pos, n_dirs))
+    phases = np.random.uniform(0, 2 * np.pi, (len(freqs), len(dirs_rad)))
 
-    # Amplitude from interpolated spectrum
-    # Use df_fft for proper scaling to FFT frequencies
-    amplitudes = np.sqrt(2 * S_interp * df_fft * ddir_deg)
+    # Amplitude from spectrum
+    df = np.mean(np.diff(freqs)) if len(freqs) > 1 else 1.0
+    ddir = np.mean(np.diff(dirs_rad)) if len(dirs_rad) > 1 else 1.0
+    amplitudes = np.sqrt(2 * spectrum.S * df * ddir)
 
-    # Generate wave data for each sensor using FFT
+    # Generate wave components for each sensor
     from .transfer import get_transfer_function
 
     for si in range(n_sensors):
@@ -269,55 +242,32 @@ def make_wave_data(
 
         transfer_func = get_transfer_function(sensor_type)
 
-        # Build complex FFT spectrum by summing directional components
-        X_fft = np.zeros(n_fft_pos, dtype=np.complex128)
-
-        for fi in range(n_fft_pos):
-            if freqs_fft[fi] == 0 or not freq_mask[fi]:
-                continue
-
-            # Get transfer function for all directions at this frequency
-            H = transfer_func(
-                np.array([sigma_interp[fi]]),
-                np.array([k_interp[fi]]),
-                dirs_rad,
-                depth,
-                z,
-            )  # Shape: [1, n_dirs]
-
-            # Sum contributions from all directions
-            for di in range(n_dirs):
+        # Loop over frequency and direction
+        for fi, f in enumerate(freqs):
+            for di, d in enumerate(dirs_rad):
                 if amplitudes[fi, di] < 1e-10:
                     continue
 
-                # Phase from position
-                kx = k_interp[fi] * (x * np.cos(dirs_rad[di]) + y * np.sin(dirs_rad[di]))
-
-                # Complex amplitude including transfer function and spatial phase
-                # The factor n_samples/2 converts amplitude to FFT coefficient
-                X_fft[fi] += (
-                    amplitudes[fi, di]
-                    * H[0, di]
-                    * np.exp(1j * (phases[fi, di] - kx))
-                    * n_samples
-                    / 2
+                # Transfer function for this sensor
+                H = transfer_func(
+                    np.array([sigma[fi]]),
+                    np.array([k[fi]]),
+                    np.array([d]),
+                    depth,
+                    z,
                 )
 
-        # Build two-sided spectrum for IFFT
-        X_full = np.zeros(n_samples, dtype=np.complex128)
-        X_full[0:n_fft_pos] = X_fft
+                # Phase from position
+                kx = k[fi] * (x * np.cos(d) + y * np.sin(d))
 
-        # Conjugate symmetry for real signal (negative frequencies)
-        # X[-f] = conj(X[f])
-        if n_samples % 2 == 0:
-            # Even length: Nyquist bin is real, don't duplicate
-            X_full[n_fft_pos:] = np.conj(X_fft[-2:0:-1])
-        else:
-            # Odd length
-            X_full[n_fft_pos:] = np.conj(X_fft[-1:0:-1])
+                # Generate signal
+                wave = (
+                    amplitudes[fi, di]
+                    * np.abs(H[0, 0])
+                    * np.cos(2 * np.pi * f * t - kx + phases[fi, di] + np.angle(H[0, 0]))
+                )
 
-        # IFFT to get time series
-        data[:, si] = np.real(np.fft.ifft(X_full))
+                data[:, si] += wave
 
     # Add noise
     if noise_level > 0:

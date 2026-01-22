@@ -199,34 +199,6 @@ class SpectralMatrix:
             return 0.0
         return float(np.mean(np.diff(self.dirs)))
 
-    @property
-    def hs(self) -> float:
-        """Compute significant wave height."""
-        from .utils import hsig
-
-        return hsig(self.S, self.freqs, self.dirs)
-
-    @property
-    def dp(self) -> float:
-        """Compute peak period."""
-        from .utils import peak_direction
-
-        return peak_direction(self.S, self.freqs, self.dirs)
-
-    @property
-    def tp(self) -> float:
-        """Compute peak period."""
-        from .utils import peak_frequency
-
-        return 1.0 / peak_frequency(self.S, self.freqs, self.dirs)
-
-    @property
-    def dspr(self) -> float:
-        """Compute directional spread."""
-        from .utils import one_sided_directional_spread
-
-        return one_sided_directional_spread(self.S, self.freqs, self.dirs)
-
     def to_xarray(self) -> xr.Dataset:
         """Convert to xarray Dataset compatible with wavespectra.
 
@@ -292,7 +264,7 @@ class EstimationParameters:
         smooth: Whether to apply spectral smoothing.
     """
 
-    method: EstimationMethod = EstimationMethod.EMLM
+    method: EstimationMethod = EstimationMethod.IMLM
     nfft: int | None = None
     dres: int = 180
     iter: int = 100

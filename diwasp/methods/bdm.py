@@ -1,7 +1,7 @@
 """Bayesian Direct Method (BDM) for directional spectrum estimation.
 
 The BDM uses Bayesian inference with Tikhonov regularization to estimate
-the directional spectrum. It provides natural smoothing via the Laplacian
+the directional spectrum. It provides natural smoothing via a second-derivative
 prior and automatic hyperparameter selection via ABIC.
 
 Reference:
@@ -22,18 +22,18 @@ class BDM(EstimationMethodBase):
     The BDM estimates the directional spectrum using:
 
     1. Log-transform spectral density: x = log(S)
-    2. Solve inverse problem with Tikhonov regularization
-    3. Use QR decomposition for numerical stability
+    2. Newton-Raphson iterative optimization with exponential model
+    3. QR decomposition for numerical stability
     4. Select regularization via Akaike Bayesian Information Criterion (ABIC)
 
-    The Laplacian regularization provides natural smoothing for the spectrum.
+    Uses second-derivative regularization with circular boundary conditions.
     """
 
-    def __init__(self, max_iter: int = 100, n_reg_steps: int = 20):
+    def __init__(self, max_iter: int = 100, n_reg_steps: int = 6):
         """Initialize BDM method.
 
         Args:
-            max_iter: Maximum iterations for optimization.
+            max_iter: Maximum iterations per regularization parameter.
             n_reg_steps: Number of regularization parameter values to try.
         """
         super().__init__(max_iter)
@@ -56,180 +56,242 @@ class BDM(EstimationMethodBase):
             Directional spectrum estimate [n_freqs x n_dirs].
         """
         n_freqs, n_dirs, n_sensors = transfer_matrix.shape
+        ddir = 2.0 * np.pi / n_dirs
+
+        # Build second-derivative regularization matrix (circular boundary)
+        dd = self._build_second_derivative(n_dirs)
+
+        # Extract Co and Quad spectra
+        Co = np.real(csd_matrix)
+        Quad = -np.imag(csd_matrix)
+
+        # Compute normalization factors (standard deviations)
+        sigCo = np.zeros((n_sensors, n_sensors, n_freqs))
+        sigQuad = np.zeros((n_sensors, n_sensors, n_freqs))
+
+        for ff in range(n_freqs):
+            xpsx = np.real(np.outer(np.diag(csd_matrix[ff]), np.diag(csd_matrix[ff]).conj()))
+            sigCo[:, :, ff] = np.sqrt(np.maximum(0.5 * (xpsx + Co[ff] ** 2 - Quad[ff] ** 2), 1e-20))
+            sigQuad[:, :, ff] = np.sqrt(
+                np.maximum(0.5 * (xpsx - Co[ff] ** 2 + Quad[ff] ** 2), 1e-20)
+            )
 
         # Initialize output spectrum
         S = np.zeros((n_freqs, n_dirs))
 
-        # Build Laplacian regularization matrix for circular domain
-        L = self._build_laplacian(n_dirs)
+        for ff in range(n_freqs):
+            # Build observation vector phi and transfer matrix H
+            phi_list = []
+            H_list = []
 
-        # Loop over frequencies
-        for fi in range(n_freqs):
-            # Get CSD matrix for this frequency
-            C = csd_matrix[fi, :, :]
+            for m in range(n_sensors):
+                for n in range(m, n_sensors):
+                    # Compute transfer function product
+                    Hh = transfer_matrix[ff, :, m]
+                    Hhs = np.conj(transfer_matrix[ff, :, n])
+                    expx = np.exp(-1j * (kx[ff, :, m] - kx[ff, :, n]))
+                    Htemp = Hh * Hhs * expx
 
-            # Compute weights matrix W [n_dirs x n_sensors]
-            W = np.zeros((n_dirs, n_sensors), dtype=np.complex128)
-            for di in range(n_dirs):
-                H = transfer_matrix[fi, di, :]
-                kx_d = kx[fi, di, :]
-                W[di, :] = H * np.exp(1j * kx_d)
+                    # Check if this pair provides useful information
+                    if not np.allclose(Htemp[0], Htemp[1]):
+                        # Real part (Co-spectrum)
+                        sig_co = np.real(sigCo[m, n, ff])
+                        if sig_co > 1e-20:
+                            phi_list.append(np.real(csd_matrix[ff, m, n]) / sig_co)
+                            H_list.append(np.real(Htemp) / sig_co)
 
-            # Build observation vector from cross-spectra (upper triangle)
-            obs_real = []
-            obs_imag = []
+                        # Imaginary part (Quad-spectrum) if spatially separated
+                        if not np.allclose(kx[ff, 0, m], kx[ff, 0, n]):
+                            sig_quad = np.real(sigQuad[m, n, ff])
+                            if sig_quad > 1e-20:
+                                phi_list.append(np.imag(csd_matrix[ff, m, n]) / sig_quad)
+                                H_list.append(np.imag(Htemp) / sig_quad)
 
-            for i in range(n_sensors):
-                for j in range(i, n_sensors):
-                    obs_real.append(np.real(C[i, j]))
-                    obs_imag.append(np.imag(C[i, j]))
+            if len(phi_list) == 0:
+                S[ff, :] = np.ones(n_dirs) / n_dirs
+                continue
 
-            d = np.array(obs_real + obs_imag)
-            n_obs = len(obs_real)
+            M = len(phi_list)
+            B = np.array(phi_list)  # [M]
+            A = np.array(H_list) * ddir  # [M x n_dirs]
 
-            # Build forward model matrix G
-            # Maps directional spectrum to observed cross-spectra
-            G = self._build_forward_matrix(W, n_sensors, n_dirs, n_obs)
+            # Model order selection with ABIC
+            ABIC_values = []
+            x_held = []
+            keepgoing = True
+            n_model = 0
 
-            # Search for optimal regularization parameter
-            best_abic = np.inf
-            best_x = None
+            while keepgoing and n_model < self.n_reg_steps:
+                n_model += 1
+                u = 0.5**n_model  # Regularization parameter
 
-            # Try different regularization strengths
-            reg_values = 0.5 ** np.arange(self.n_reg_steps)
+                # Initialize x = log(1/(2*pi)) for uniform distribution
+                x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
 
-            for reg in reg_values:
-                try:
-                    # Solve regularized least squares
-                    # minimize ||Gx - d||^2 + reg * ||Lx||^2
-                    x, abic = self._solve_regularized(G, d, L, reg)
+                rlx = 1.0
+                count = 0
+                converged = False
 
-                    if abic < best_abic:
-                        best_abic = abic
-                        best_x = x
+                while not converged:
+                    count += 1
 
-                except np.linalg.LinAlgError:
+                    # Exponential model: F = exp(x), with bounds to prevent overflow
+                    x_clipped = np.clip(x, -20, 20)
+                    F = np.exp(x_clipped)
+                    E = np.diag(F)
+
+                    # Linearized system: A @ E @ dx = B - A @ F + A @ E @ x
+                    A2 = A @ E  # [M x n_dirs]
+                    B2 = B - A @ F + A @ E @ x  # [M]
+
+                    # Check for numerical issues
+                    if not np.all(np.isfinite(A2)) or not np.all(np.isfinite(B2)):
+                        if rlx > 0.0625:
+                            rlx *= 0.5
+                            x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
+                            count = 0
+                            continue
+                        else:
+                            break
+
+                    # Build augmented system for QR decomposition
+                    # [A2; u*dd] @ x = [B2; 0]
+                    Z = np.zeros((M + n_dirs, n_dirs + 1))
+                    Z[:M, :n_dirs] = A2
+                    Z[M:, :n_dirs] = u * dd
+                    Z[:M, n_dirs] = B2
+                    Z[M:, n_dirs] = 0.0
+
+                    # QR decomposition
+                    try:
+                        Q, U = linalg.qr(Z, mode="full")
+                    except (linalg.LinAlgError, ValueError):
+                        break
+
+                    # Extract triangular system
+                    TA = U[:n_dirs, :n_dirs]
+                    Tb = U[:n_dirs, n_dirs]
+
+                    # Check for numerical issues in result
+                    if not np.all(np.isfinite(Tb)):
+                        if rlx > 0.0625:
+                            rlx *= 0.5
+                            x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
+                            count = 0
+                            continue
+                        else:
+                            break
+
+                    # Solve for x1
+                    try:
+                        x1 = linalg.solve_triangular(TA, Tb, lower=False)
+                    except (linalg.LinAlgError, ValueError):
+                        try:
+                            x1 = np.linalg.lstsq(TA, Tb, rcond=None)[0]
+                        except np.linalg.LinAlgError:
+                            break
+
+                    if not np.all(np.isfinite(x1)):
+                        if rlx > 0.0625:
+                            rlx *= 0.5
+                            x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
+                            count = 0
+                            continue
+                        else:
+                            break
+
+                    stddiff = np.std(x - x1)
+                    x_new = (1 - rlx) * x + rlx * x1
+
+                    # Check for divergence or non-finite values
+                    if count > self.max_iter or not np.all(np.isfinite(x_new)):
+                        if rlx > 0.0625:
+                            rlx *= 0.5
+                            x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
+                            count = 0
+                        else:
+                            if n_model > 1:
+                                keepgoing = False
+                            break
+                    else:
+                        x = x_new
+                        if stddiff < 0.001:
+                            converged = True
+
+                if not converged:
+                    if n_model > 1:
+                        keepgoing = False
                     continue
 
-            # Convert from log-space to spectrum
-            if best_x is not None:
-                S_dir = np.exp(best_x)
+                # Compute ABIC for this regularization
+                # sig2 = (||A2*x - B2||^2 + u*||dd*x||^2) / M
+                residual_norm = np.linalg.norm(A2 @ x - B2)
+                reg_norm = np.linalg.norm(dd @ x)
+                sig2 = (residual_norm**2 + u * reg_norm**2) / M
+
+                # ABIC = M*(log(2*pi*sig2) + 1) - k*log(u^2) + sum(log(diag(TA)^2))
+                diag_TA = np.diag(TA)
+                diag_TA = np.where(np.abs(diag_TA) < 1e-20, 1e-20, diag_TA)
+                abic = (
+                    M * (np.log(2 * np.pi * sig2) + 1)
+                    - n_dirs * np.log(u * u)
+                    + np.sum(np.log(diag_TA**2))
+                )
+
+                ABIC_values.append(abic)
+                x_held.append(x.copy())
+
+                # Check if ABIC is increasing (stop if worse)
+                if len(ABIC_values) > 1:
+                    if ABIC_values[-1] > ABIC_values[-2]:
+                        keepgoing = False
+
+            # Select best model
+            if len(ABIC_values) > 0:
+                best_idx = np.argmin(ABIC_values)
+                x = x_held[best_idx]
             else:
-                # Fallback to uniform distribution
-                S_dir = np.ones(n_dirs)
+                x = np.full(n_dirs, np.log(1.0 / (2 * np.pi)))
 
-            # Normalize
-            total = np.sum(S_dir)
-            if total > 0:
-                S_dir = S_dir / total
+            # Reconstruct spectrum: G = exp(x), with clipping for stability
+            x_clipped = np.clip(x, -20, 20)
+            G = np.exp(x_clipped)
 
-            S[fi, :] = S_dir
+            # Normalize to sum=1 (directional distribution)
+            total = np.sum(G)
+            if total > 0 and np.isfinite(total):
+                SG = G / total
+            else:
+                SG = np.ones(n_dirs) / n_dirs
+
+            S[ff, :] = SG
 
         return S
 
-    def _build_laplacian(self, n: int) -> NDArray[np.floating]:
-        """Build circular Laplacian regularization matrix.
+    def _build_second_derivative(self, n: int) -> NDArray[np.floating]:
+        """Build second-derivative regularization matrix with circular boundary.
 
-        For a circular domain, the Laplacian is:
-        L[i,i] = 2, L[i,i-1] = L[i,i+1] = -1
-
-        with periodic boundary conditions.
+        The matrix implements: d^2/dtheta^2 with periodic boundary conditions.
+        dd[i,i] = 1, dd[i,i-1] = -2, dd[i,i-2] = 1
 
         Args:
-            n: Size of the matrix.
+            n: Size of the matrix (number of directions).
 
         Returns:
-            Laplacian matrix [n x n].
+            Second derivative matrix [n x n].
         """
-        L = np.zeros((n, n))
-        for i in range(n):
-            L[i, i] = 2.0
-            L[i, (i - 1) % n] = -1.0
-            L[i, (i + 1) % n] = -1.0
+        dd = np.zeros((n, n))
 
-        return L
+        # Main diagonal
+        dd += np.diag(np.ones(n))
 
-    def _build_forward_matrix(
-        self,
-        W: NDArray[np.complexfloating],
-        n_sensors: int,
-        n_dirs: int,
-        n_obs: int,
-    ) -> NDArray[np.floating]:
-        """Build forward model matrix.
+        # -2 on first sub-diagonal (with wrap)
+        dd += np.diag(-2 * np.ones(n - 1), -1)
+        dd[0, n - 1] = -2
 
-        Maps log-spectrum to observed cross-spectra.
+        # +1 on second sub-diagonal (with wrap)
+        dd += np.diag(np.ones(n - 2), -2)
+        dd[0, n - 2] = 1
+        dd[1, n - 1] = 1
 
-        Args:
-            W: Complex weight matrix [n_dirs x n_sensors].
-            n_sensors: Number of sensors.
-            n_dirs: Number of directions.
-            n_obs: Number of observations.
-
-        Returns:
-            Forward matrix [2*n_obs x n_dirs].
-        """
-        G = np.zeros((2 * n_obs, n_dirs))
-
-        p = 0
-        for i in range(n_sensors):
-            for j in range(i, n_sensors):
-                for di in range(n_dirs):
-                    # Cross-spectrum contribution: W_i * W_j^*
-                    cross = W[di, i] * W[di, j].conj()
-
-                    # For log-space model, we need linearization
-                    # Here we use a simplified linear model
-                    G[p, di] = np.real(cross)
-                    G[n_obs + p, di] = np.imag(cross)
-
-                p += 1
-
-        return G
-
-    def _solve_regularized(
-        self,
-        G: NDArray[np.floating],
-        d: NDArray[np.floating],
-        L: NDArray[np.floating],
-        reg: float,
-    ) -> tuple[NDArray[np.floating], float]:
-        """Solve regularized least squares problem.
-
-        minimize ||Gx - d||^2 + reg * ||Lx||^2
-
-        Args:
-            G: Forward matrix.
-            d: Observation vector.
-            L: Regularization matrix.
-            reg: Regularization parameter.
-
-        Returns:
-            Tuple of (solution x, ABIC value).
-        """
-        n_obs = len(d)
-        n_dirs = G.shape[1]
-
-        # Build augmented system
-        # [G; sqrt(reg)*L] @ x = [d; 0]
-        G_aug = np.vstack([G, np.sqrt(reg) * L])
-        d_aug = np.concatenate([d, np.zeros(n_dirs)])
-
-        # Solve using QR decomposition for stability
-        Q, R = linalg.qr(G_aug, mode="economic")
-        x = linalg.solve_triangular(R, Q.T @ d_aug)
-
-        # Compute residual
-        residual = G @ x - d
-        rss = np.sum(residual**2)
-
-        # Compute regularization penalty
-        reg_penalty = np.sum((L @ x) ** 2)
-
-        # ABIC: Akaike Bayesian Information Criterion
-        # ABIC = n * log(rss/n) + log(det(G'G + reg*L'L))
-        # Simplified version:
-        effective_df = min(n_dirs, n_obs)
-        abic = n_obs * np.log(rss / n_obs + 1e-20) + reg * reg_penalty + effective_df
-
-        return x, abic
+        return dd
