@@ -164,7 +164,7 @@ result = diwasp(
 
 ## Documentation
 
-Full documentation is available at [https://diwasp-python.readthedocs.io](https://diwasp-python.readthedocs.io)
+Full documentation is available at [https://wavespectra.github.io/diwasp-python](https://wavespectra.github.io/diwasp-python)
 
 - [Installation Guide](docs/installation.md)
 - [High-Level Wrapper Function](docs/wrapper.md)
@@ -186,7 +186,7 @@ Full documentation is available at [https://diwasp-python.readthedocs.io](https:
 ### Install for Development
 
 ```bash
-git clone https://github.com/yourusername/diwasp-python.git
+git clone https://github.com/wavespectra/diwasp-python.git
 cd diwasp-python
 pip install -e ".[dev]"
 ```
