@@ -26,35 +26,17 @@ Key Features
 * **Array configurations**: Support for single sensors or multi-sensor arrays
 * **Modern output**: Returns wavespectra-compatible xarray Datasets
 
-Documentation
--------------
-
-**Getting Started**
-
-* :doc:`installation`
-* :doc:`wrapper`
-* :doc:`data_structures`
-
 .. toctree::
-    :maxdepth: 1
-    :hidden:
-    :caption: Getting Started:
+    :maxdepth: 2
+    :caption: Getting Started
 
     installation
     wrapper
     data_structures
 
-**Reference**
-
-* :doc:`api_reference`
-* :doc:`estimation_methods`
-* :doc:`file_format`
-* :doc:`references`
-
 .. toctree::
-    :maxdepth: 1
-    :hidden:
-    :caption: Reference:
+    :maxdepth: 2
+    :caption: Reference
 
     api_reference
     estimation_methods

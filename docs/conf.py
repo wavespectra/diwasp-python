@@ -78,15 +78,18 @@ todo_include_todos = False
 html_theme = "pydata_sphinx_theme"
 
 html_theme_options = {
-    "collapse_navigation": True,
-    "show_nav_level": 4,
+    "collapse_navigation": False,
+    "navigation_depth": 3,
+    "show_nav_level": 2,
+    "show_toc_level": 2,
     "navbar_align": "content",
     "navbar_center": ["navbar-nav"],
+    "primary_sidebar_end": [],
     "secondary_sidebar_items": ["page-toc", "edit-this-page"],
     "icon_links": [
         {
             "name": "GitHub",
-            "url": "https://github.com/metocean/diwasp-python",
+            "url": "https://github.com/wavespectra/diwasp-python",
             "icon": "fab fa-github",
             "type": "fontawesome",
         },
@@ -100,7 +103,7 @@ html_theme_options = {
 }
 
 html_sidebars = {
-    "**": ["globaltoc.html"],
+    "**": ["sidebar-nav-bs"],
 }
 
 # Add any paths that contain custom static files
