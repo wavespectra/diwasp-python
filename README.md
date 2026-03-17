@@ -7,7 +7,7 @@
 
 DIWASP is a comprehensive toolbox for estimating directional wave spectra from measurements of water surface elevation, pressure, velocity, or acceleration. This Python implementation provides a modern, user-friendly interface built on top of industry-standard scientific Python libraries.
 
-![DIWASP](diwasp.png)
+<img src="diwasp.png" alt="DIWASP" width="800" height="400">
 
 ## Features
 
