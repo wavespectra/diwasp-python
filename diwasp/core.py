@@ -112,6 +112,10 @@ def dirspec(
         print(f"Sensors: {instrument_data.n_sensors}")
         print(f"Samples: {instrument_data.n_samples}")
 
+    # Single-sensor fallback: return uniform directional spectrum
+    if instrument_data.n_sensors == 1:
+        return _single_sensor_spectrum(instrument_data, estimation_params, freqs, dirs)
+
     # Step 1: Detrend data
     if verbose >= 2:
         print("Detrending data...")
@@ -239,7 +243,10 @@ def dirspec(
         dunit="cart",
     )
 
-    return spectrum
+    # Step 14: Compute spectral statistics
+    info = _compute_spectral_info(spectrum)
+
+    return spectrum, info
 
 
 def _validate_inputs(
@@ -247,8 +254,8 @@ def _validate_inputs(
     estimation_params: EstimationParameters,
 ) -> None:
     """Validate input data and parameters."""
-    if instrument_data.n_sensors < 2:
-        raise ValueError("At least 2 sensors required for directional analysis")
+    if instrument_data.n_sensors < 1:
+        raise ValueError("At least 1 sensor required")
 
     if instrument_data.n_samples < 64:
         raise ValueError("At least 64 samples required")
@@ -259,6 +266,65 @@ def _validate_inputs(
                 f"nfft ({estimation_params.nfft}) cannot exceed "
                 f"number of samples ({instrument_data.n_samples})"
             )
+
+
+def _single_sensor_spectrum(
+    instrument_data: InstrumentData,
+    estimation_params: EstimationParameters,
+    freqs: NDArray[np.floating] | None,
+    dirs: NDArray[np.floating] | None,
+) -> tuple["SpectralMatrix", "SpectralInfo"]:
+    """Compute a non-directional (uniform) spectrum from a single sensor.
+
+    Applies the sensor transfer function to convert raw measurements to
+    surface-elevation-equivalent spectra before distributing uniformly
+    across directions.
+    """
+    nfft = estimation_params.nfft
+    if nfft is None:
+        nfft = min(instrument_data.n_samples, 256)
+        nfft = int(2 ** np.floor(np.log2(nfft)))
+
+    data = detrend_data(instrument_data.data)
+    csd_freqs, csd_matrix = compute_csd_matrix(data, fs=instrument_data.fs, nfft=nfft)
+
+    if freqs is None:
+        min_freq = 0.04
+        freq_mask = csd_freqs >= min_freq
+        freqs = csd_freqs[freq_mask]
+        S_raw = np.real(csd_matrix[freq_mask, 0, 0])
+    else:
+        freqs = np.asarray(freqs)
+        S_raw = np.interp(freqs, csd_freqs, np.real(csd_matrix[:, 0, 0]))
+
+    # Apply transfer function correction: divide by |H|^2 averaged over directions
+    # Use a representative direction (0 rad) for the magnitude, then take max over
+    # a few directions so the correction is direction-averaged
+    sigma = frequency_to_angular(freqs)
+    k = wavenumber(sigma, instrument_data.depth)
+    sensor_z = instrument_data.layout[2, 0]
+    theta_sample = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+    from .transfer import get_transfer_function
+
+    tf = get_transfer_function(instrument_data.datatypes[0])
+    H_vals = tf(sigma, k, theta_sample, instrument_data.depth, sensor_z)
+    # H_vals shape: [n_freqs, n_theta_sample]; take mean |H|^2 over directions
+    H2_mean = np.mean(np.abs(H_vals) ** 2, axis=1)
+    H2_mean = np.maximum(H2_mean, 1e-6)
+    S_1d = S_raw / H2_mean
+
+    if dirs is None:
+        dirs = np.linspace(0, 360, estimation_params.dres, endpoint=False)
+    else:
+        dirs = np.asarray(dirs)
+
+    n_dirs = len(dirs)
+    ddir = 360.0 / n_dirs
+    S = np.outer(S_1d, np.ones(n_dirs)) / (n_dirs * ddir)
+
+    spectrum = SpectralMatrix(freqs=freqs, dirs=dirs, S=S, xaxisdir=90.0, funit="hz", dunit="cart")
+    info = _compute_spectral_info(spectrum)
+    return spectrum, info
 
 
 def _interpolate_csd(

@@ -181,11 +181,17 @@ def makespec(
 
 
 def make_wave_data(
-    spectrum: SpectralMatrix,
-    instrument_data: InstrumentData,
-    n_samples: int,
+    spectrum: SpectralMatrix | None = None,
+    instrument_data: InstrumentData | None = None,
+    n_samples: int | None = None,
     noise_level: float = 0.0,
     seed: int | None = None,
+    *,
+    layout: NDArray[np.floating] | None = None,
+    datatypes: list | None = None,
+    depth: float | None = None,
+    fs: float | None = None,
+    duration: float | None = None,
 ) -> NDArray[np.floating]:
     """Generate synthetic sensor data from a directional spectrum.
 
@@ -198,13 +204,39 @@ def make_wave_data(
     Args:
         spectrum: Directional wave spectrum.
         instrument_data: Sensor configuration (used for layout and types).
+            Alternatively, provide layout/datatypes/depth/fs/duration directly.
         n_samples: Number of time samples to generate.
         noise_level: Standard deviation of Gaussian noise to add.
         seed: Random seed for reproducibility.
+        layout: Sensor positions [3 x n_sensors] (alternative to instrument_data).
+        datatypes: List of sensor type strings (alternative to instrument_data).
+        depth: Water depth in meters (alternative to instrument_data).
+        fs: Sampling frequency in Hz (alternative to instrument_data).
+        duration: Duration in seconds (alternative to n_samples).
 
     Returns:
         Synthetic sensor data [n_samples x n_sensors].
     """
+    if spectrum is None:
+        raise ValueError("Must provide spectrum")
+
+    if instrument_data is None:
+        if layout is None or datatypes is None or depth is None or fs is None:
+            raise ValueError("Must provide either instrument_data or layout/datatypes/depth/fs")
+        sensor_types = [SensorType(dt) if isinstance(dt, str) else dt for dt in datatypes]
+        instrument_data = InstrumentData(
+            data=np.zeros((1, len(sensor_types))),
+            layout=np.asarray(layout),
+            datatypes=sensor_types,
+            depth=depth,
+            fs=fs,
+        )
+
+    if duration is not None and n_samples is None:
+        n_samples = int(duration * instrument_data.fs)
+    elif n_samples is None:
+        raise ValueError("Must provide either n_samples or duration")
+
     if seed is not None:
         np.random.seed(seed)
 
@@ -246,9 +278,7 @@ def make_wave_data(
     freq_mask = (freqs_fft >= freqs_spec[0]) & (freqs_fft <= freqs_spec[-1])
     if np.any(freq_mask):
         for di in range(n_dirs):
-            S_interp[freq_mask, di] = np.interp(
-                freqs_fft[freq_mask], freqs_spec, spectrum.S[:, di]
-            )
+            S_interp[freq_mask, di] = np.interp(freqs_fft[freq_mask], freqs_spec, spectrum.S[:, di])
         k_interp[freq_mask] = np.interp(freqs_fft[freq_mask], freqs_spec, k_spec)
 
     # Generate random phases for each frequency/direction component
@@ -367,9 +397,7 @@ def _tma_spectrum(
     kd = k * depth
 
     # Kitaigorodskii shape factor
-    phi = np.where(
-        kd <= 1, 0.5 * kd**2, 1 - 0.5 * (2 - kd) ** 2 * (kd < 2) + (kd >= 2) * 1.0
-    )
+    phi = np.where(kd <= 1, 0.5 * kd**2, 1 - 0.5 * (2 - kd) ** 2 * (kd < 2) + (kd >= 2) * 1.0)
 
     S = S * phi
 

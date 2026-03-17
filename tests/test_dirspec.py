@@ -233,7 +233,7 @@ class TestMakeWaveData:
             spread=50.0,
         )
 
-        layout = np.array([[0, 10], [0, 0], [10, 10]]).T
+        layout = np.array([[0, 10], [0, 0], [10, 10]])
         datatypes = [SensorType.PRES, SensorType.VELX]
 
         id = InstrumentData(
@@ -325,8 +325,8 @@ class TestDirspec:
 
         assert isinstance(spectrum, SpectralMatrix)
 
-    def test_validation_too_few_sensors(self):
-        """Should raise error with only 1 sensor."""
+    def test_validation_single_sensor(self):
+        """Single sensor should return a uniform (non-directional) spectrum."""
         data = np.random.randn(1024, 1)
         layout = np.array([[0], [0], [10]])
 
@@ -338,8 +338,9 @@ class TestDirspec:
             fs=2.0,
         )
 
-        with pytest.raises(ValueError, match="2 sensors"):
-            dirspec(id, verbose=0)
+        spectrum, info = dirspec(id, verbose=0)
+        assert isinstance(spectrum, SpectralMatrix)
+        assert isinstance(info, SpectralInfo)
 
     def test_validation_too_few_samples(self):
         """Should raise error with too few samples."""

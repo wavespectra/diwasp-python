@@ -61,7 +61,7 @@ def diwasp(
     dres: int = 180,
     nfft: int | None = None,
     smooth: bool = True,
-    window_timestamp: Literal["start", "center", "end"] = "start",
+    window_timestamp: Literal["start", "center", "end"] = "center",
     verbose: int = 1,
 ) -> xr.Dataset:
     """Estimate directional wave spectra from sensor data over multiple windows.
@@ -289,7 +289,7 @@ def diwasp(
         )
 
         # Estimate spectrum
-        spectrum = dirspec(
+        spectrum, _info = dirspec(
             instrument,
             estimation_params=est_params,
             freqs=freqs,

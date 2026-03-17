@@ -251,8 +251,8 @@ def peak_direction(
 
 def mean_direction(
     S: NDArray[np.floating],
-    freqs: NDArray[np.floating],
-    dirs: NDArray[np.floating],
+    freqs_or_dirs: NDArray[np.floating],
+    dirs: NDArray[np.floating] | None = None,
 ) -> float:
     """Calculate energy-weighted mean direction.
 
@@ -260,11 +260,15 @@ def mean_direction(
 
     Args:
         S: Spectral density matrix [n_freqs x n_dirs].
-        dirs: Direction bins in degrees.
+        freqs_or_dirs: Either direction bins in degrees (2-arg form) or
+            frequency bins in Hz (3-arg form, freqs is unused).
+        dirs: Direction bins in degrees (3-arg form only).
 
     Returns:
         Mean direction in degrees.
     """
+    if dirs is None:
+        dirs = freqs_or_dirs
     # Convert to radians
     dirs_rad = np.deg2rad(dirs)
 
