@@ -1021,7 +1021,9 @@ class TestDiwaspDepthAttenuation:
 
         # Also add velocity sensors to help with directional estimation
         u_signal = amplitude * np.cos(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(n_samples)
-        v_signal = 0.5 * amplitude * np.sin(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(n_samples)
+        v_signal = 0.5 * amplitude * np.sin(2 * np.pi * f_wave * t) + 0.02 * np.random.randn(
+            n_samples
+        )
 
         df = pd.DataFrame(
             {"p": pressure_signal, "u": u_signal, "v": v_signal},

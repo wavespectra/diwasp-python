@@ -22,7 +22,6 @@ from .types import (
     SpectralInfo,
 )
 
-
 # Default sensor type mapping
 DEFAULT_SENSOR_MAP = {
     "pres": SensorType.PRES,
