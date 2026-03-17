@@ -80,7 +80,7 @@ Original DIWASP:
     University of Western Australia.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # High-level wrapper
 from .wrapper import diwasp
