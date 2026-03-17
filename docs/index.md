@@ -8,6 +8,8 @@ A Python package for estimating directional wave spectra from multi-sensor measu
 
 DIWASP is a toolbox for the estimation of directional wave spectra. Spectra can be calculated from a variety of data types using a single function `dirspec`. Five different estimation methods are available depending on the quality or speed of estimation required. Utility functions are also included to manage spectra, plot results, and run tests on the estimation methods.
 
+<img src="diwasp.png" alt="DIWASP" width="800" height="400">
+
 ## Features
 
 - **Multiple estimation methods**: DFTM, EMLM, IMLM, EMEP, BDM
