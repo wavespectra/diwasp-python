@@ -7,14 +7,20 @@ on:
             - master
             - develop
     pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
         branches:
             - main
             - master
             - develop
     workflow_dispatch:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     test:
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         name: Test Python ${{ matrix.python-version }}
         runs-on: ubuntu-latest
         strategy:
@@ -48,6 +54,7 @@ jobs:
                   fail_ci_if_error: false
 
     lint:
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         name: Lint and format check
         runs-on: ubuntu-latest
 
